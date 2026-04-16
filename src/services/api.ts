@@ -43,7 +43,7 @@ export const api = {
   getScriptConfig(relativePath: string): Promise<ScriptConfig> {
     return window.electronAPI.getScriptConfig(relativePath);
   },
-  setScriptConfig(relativePath: string, config: ScriptConfig): Promise<{ ok: boolean }> {
+  setScriptConfig(relativePath: string, config: ScriptConfig): Promise<{ ok: boolean; config: ScriptConfig }> {
     return window.electronAPI.setScriptConfig({ relativePath, ...config });
   },
   runScript(relativePath: string): Promise<RunResult> {

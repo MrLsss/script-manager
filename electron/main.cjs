@@ -183,6 +183,123 @@ function formatTime() {
   return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 }
 
+function trimExeName(binPath) {
+  const base = path.basename(binPath || "").toLowerCase();
+  return base.replace(/\.(exe|cmd|bat|com|sh|ps1)$/i, "");
+}
+
+function normalizeVersion(raw) {
+  if (!raw) {
+    return "";
+  }
+  const text = String(raw).trim();
+  const match = text.match(/v?(\d+(?:\.\d+){0,3})/i);
+  return match ? match[1] : "";
+}
+
+function buildInterpreterDisplay(info) {
+  if (!info.interpreterName) {
+    return "Unknown";
+  }
+  return info.interpreterVersion ? `${info.interpreterName} ${info.interpreterVersion}` : info.interpreterName;
+}
+
+function inferInterpreterByName(interpreterPath) {
+  const short = trimExeName(interpreterPath);
+  const rules = [
+    { test: /^(node|nodejs|bun|tsx|deno)$/, kind: "nodejs", name: "Node.js" },
+    { test: /^(python|python\d+(\.\d+)?|py)$/, kind: "python", name: "Python" },
+    { test: /^(bash|sh|zsh|dash|ksh)$/, kind: "bash", name: "Bash" },
+    { test: /^(pwsh|powershell)$/, kind: "powershell", name: "PowerShell" },
+    { test: /^(php)$/, kind: "php", name: "PHP" },
+    { test: /^(ruby|irb)$/, kind: "ruby", name: "Ruby" },
+    { test: /^(java)$/, kind: "java", name: "Java" },
+  ];
+
+  for (const rule of rules) {
+    if (rule.test.test(short)) {
+      return { interpreterKind: rule.kind, interpreterName: rule.name };
+    }
+  }
+
+  return { interpreterKind: "unknown", interpreterName: "Unknown" };
+}
+
+function getProbeArgsByKind(kind) {
+  if (kind === "nodejs") return [["-v"], ["--version"]];
+  if (kind === "python") return [["--version"], ["-V"]];
+  if (kind === "bash") return [["--version"], ["-version"]];
+  if (kind === "powershell") return [["-Version"], ["-v"]];
+  if (kind === "php") return [["-v"], ["--version"]];
+  if (kind === "ruby") return [["-v"], ["--version"]];
+  if (kind === "java") return [["-version"], ["--version"]];
+  return [];
+}
+
+async function runInterpreterProbe(interpreterPath, probeArgs, timeoutMs = 1800) {
+  return await new Promise((resolve) => {
+    const child = spawn(interpreterPath, probeArgs, {
+      windowsHide: true,
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill();
+      resolve("");
+    }, timeoutMs);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk?.toString?.() || "";
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk?.toString?.() || "";
+    });
+
+    child.on("error", () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve("");
+    });
+
+    child.on("close", () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(`${stdout}\n${stderr}`.trim());
+    });
+  });
+}
+
+async function detectInterpreterInfo(interpreterPath) {
+  const baseInfo = inferInterpreterByName(interpreterPath);
+  const probeMatrix = getProbeArgsByKind(baseInfo.interpreterKind);
+
+  let interpreterVersion = "";
+  for (const args of probeMatrix) {
+    const output = await runInterpreterProbe(interpreterPath, args);
+    const detected = normalizeVersion(output);
+    if (detected) {
+      interpreterVersion = detected;
+      break;
+    }
+  }
+
+  const result = {
+    interpreterKind: baseInfo.interpreterKind,
+    interpreterName: baseInfo.interpreterName,
+    interpreterVersion,
+    interpreterDisplay: "",
+  };
+  result.interpreterDisplay = buildInterpreterDisplay(result);
+  return result;
+}
+
 async function appendRunHistory(record) {
   await fsp.mkdir(path.dirname(getRunsHistoryPath()), { recursive: true });
   await fsp.appendFile(getRunsHistoryPath(), `${JSON.stringify(record)}\n`, "utf8");
@@ -311,6 +428,7 @@ function registerIpc() {
       nodes,
       runtimeRecords: appConfig.runtimeRecords,
       running: Array.from(runningScripts.keys()),
+      scriptConfigs: appConfig.scriptConfigs || {},
     };
   });
 
@@ -435,16 +553,39 @@ function registerIpc() {
   });
 
   ipcMain.handle("script:get-config", async (_, relativePath) => {
-    return appConfig.scriptConfigs[relativePath] || { interpreterPath: "", args: "" };
+    const current = appConfig.scriptConfigs[relativePath] || { interpreterPath: "", args: "" };
+    if (current.interpreterPath && !current.interpreterDisplay) {
+      const detected = await detectInterpreterInfo(current.interpreterPath);
+      appConfig.scriptConfigs[relativePath] = {
+        ...current,
+        ...detected,
+      };
+      await saveConfig();
+      return appConfig.scriptConfigs[relativePath];
+    }
+    return current;
   });
 
   ipcMain.handle("script:set-config", async (_, payload) => {
+    const interpreterPath = payload.interpreterPath || "";
+    let detected = {
+      interpreterKind: "unknown",
+      interpreterName: "Unknown",
+      interpreterVersion: "",
+      interpreterDisplay: "Unknown",
+    };
+
+    if (interpreterPath) {
+      detected = await detectInterpreterInfo(interpreterPath);
+    }
+
     appConfig.scriptConfigs[payload.relativePath] = {
-      interpreterPath: payload.interpreterPath || "",
+      interpreterPath,
       args: payload.args || "",
+      ...detected,
     };
     await saveConfig();
-    return { ok: true };
+    return { ok: true, config: appConfig.scriptConfigs[payload.relativePath] };
   });
 
   ipcMain.handle("script:run", async (_, relativePath) => {

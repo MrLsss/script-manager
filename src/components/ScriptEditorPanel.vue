@@ -1,11 +1,10 @@
 ﻿<script setup lang="ts">
 import { computed } from "vue";
-import { Clock, FolderOpen, Play, Save, Settings, Trash2 } from "lucide-vue-next";
+import { Clock3, FolderOpen, Play, Save, Settings, Trash2, Cog } from "lucide-vue-next";
 import { appStore } from "../stores/appStore";
 import CodeEditor from "./CodeEditor.vue";
 
-defineProps<{
-  runtimeText: string;
+const props = defineProps<{
   isRunning: boolean;
 }>();
 
@@ -48,8 +47,53 @@ const createdAtText = computed(() => {
   if (!node?.createdAtMs) {
     return "";
   }
-  return new Date(node.createdAtMs).toLocaleString("zh-CN");
+  return formatDateTime(node.createdAtMs);
 });
+
+const runtimeDisplayText = computed(() => {
+  if (props.isRunning) {
+    return "运行中";
+  }
+  if (!state.selectedScriptPath || !state.runtimeRecords[state.selectedScriptPath]) {
+    return "尚未运行";
+  }
+  const runtime = state.runtimeRecords[state.selectedScriptPath];
+  const status = runtime.lastStatus === "success" ? "成功" : "失败";
+  return `${status} ${formatDateTime(runtime.lastRunAt)}`;
+});
+
+const runtimeTagClass = computed(() => {
+  if (props.isRunning) {
+    return "bg-blue-500/12 text-blue-700";
+  }
+  if (!state.selectedScriptPath || !state.runtimeRecords[state.selectedScriptPath]) {
+    return "bg-slate-500/12 text-slate-700";
+  }
+  return state.runtimeRecords[state.selectedScriptPath].lastStatus === "success"
+    ? "bg-emerald-500/14 text-emerald-700"
+    : "bg-red-500/14 text-red-700";
+});
+
+const runtimeDotClass = computed(() => {
+  if (props.isRunning) {
+    return "bg-blue-600";
+  }
+  if (!state.selectedScriptPath || !state.runtimeRecords[state.selectedScriptPath]) {
+    return "bg-slate-500";
+  }
+  return state.runtimeRecords[state.selectedScriptPath].lastStatus === "success" ? "bg-emerald-600" : "bg-red-600";
+});
+
+const interpreterText = computed(() => {
+  return state.selectedScriptConfig.interpreterDisplay || "未配置解释器";
+});
+const showInterpreterTag = computed(() => !!state.selectedScriptConfig.interpreterPath);
+
+function formatDateTime(ts: number) {
+  const date = new Date(ts);
+  const pad = (v: number) => String(v).padStart(2, "0");
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 function openLocation() {
   if (!state.selectedScriptPath) {
@@ -60,19 +104,19 @@ function openLocation() {
 </script>
 
 <template>
-  <div v-if="!state.selectedScriptPath" class="h-full flex items-center justify-center text-gray-500 text-sm">
+  <div v-if="!state.selectedScriptPath" class="h-full flex items-center justify-center text-slate-600 text-sm">
     请选择左侧脚本开始编辑
   </div>
 
-  <div v-else class="h-full flex flex-col bg-white/35 backdrop-blur-xl">
-    <div class="px-4 py-3 border-b border-white/30 bg-white/40">
+  <div v-else class="h-full flex flex-col">
+    <div class="px-4 py-3 border-b border-white/55 bg-white/26 backdrop-blur-xl">
       <div class="flex items-center justify-between gap-3">
         <div class="min-w-0">
-          <h2 class="text-base font-semibold text-gray-900 truncate">{{ selectedFileName }}</h2>
-          <p class="text-xs text-gray-600 mt-1 truncate">{{ state.selectedScriptPath }}</p>
+          <h2 class="text-base font-semibold text-slate-900 truncate">{{ selectedFileName }}</h2>
+          <p class="text-xs text-slate-600 mt-1 truncate">{{ state.selectedScriptPath }}</p>
         </div>
         <button
-          class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm flex items-center gap-2 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
+          class="btn-solid btn-primary px-3 py-1.5 text-sm flex items-center gap-2"
           :disabled="isRunning"
           @click="appStore.runCurrentScript()"
         >
@@ -81,20 +125,27 @@ function openLocation() {
         </button>
       </div>
 
-      <div class="mt-2 text-xs text-gray-600 flex flex-col gap-1">
-        <div class="flex items-center gap-2">
-          <Clock class="w-3.5 h-3.5" />
-          <span>创建时间：{{ createdAtText || "-" }}</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <Clock class="w-3.5 h-3.5" />
-          <span>上次运行：{{ runtimeText }}</span>
-        </div>
+      <div class="mt-2 text-xs text-slate-700 flex items-center gap-2 flex-wrap">
+        <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-500/12">
+          <Clock3 class="w-3.5 h-3.5 text-slate-600" />
+          创建于 {{ createdAtText || "-" }}
+        </span>
+        <span
+          class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md"
+          :class="runtimeTagClass"
+        >
+          <span class="w-2 h-2 rounded-full" :class="runtimeDotClass" />
+          {{ runtimeDisplayText }}
+        </span>
+        <span v-if="showInterpreterTag" class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-500/12 text-blue-700">
+          <Cog class="w-3.5 h-3.5" />
+          {{ interpreterText }}
+        </span>
       </div>
     </div>
 
     <div class="flex-1 p-3 overflow-hidden">
-      <div class="h-full rounded-xl overflow-hidden border border-white/30 bg-white/65">
+      <div class="h-full rounded-xl overflow-hidden border border-white/70 arc-editor-stage">
         <CodeEditor
           :model-value="state.selectedScriptContent"
           :file-name="selectedFileName"
@@ -103,17 +154,17 @@ function openLocation() {
       </div>
     </div>
 
-    <div class="px-4 py-3 border-t border-white/30 bg-white/40 flex items-center justify-between gap-2 flex-wrap">
+    <div class="px-4 py-3 border-t border-white/55 bg-white/26 backdrop-blur-xl flex items-center justify-between gap-2 flex-wrap">
       <div class="flex items-center gap-2 flex-wrap">
         <button
-          class="px-3 py-1.5 rounded-lg text-sm bg-white/70 border border-white/70 hover:bg-white flex items-center gap-1.5"
+          class="btn-solid btn-neutral px-3 py-1.5 text-sm flex items-center gap-1.5"
           @click="openLocation"
         >
           <FolderOpen class="w-4 h-4" />
           打开位置
         </button>
         <button
-          class="px-3 py-1.5 rounded-lg text-sm bg-white/70 border border-white/70 hover:bg-white flex items-center gap-1.5"
+          class="btn-solid btn-neutral px-3 py-1.5 text-sm flex items-center gap-1.5"
           @click="emit('openConfig')"
         >
           <Settings class="w-4 h-4" />
@@ -123,7 +174,7 @@ function openLocation() {
 
       <div class="flex items-center gap-2">
         <button
-          class="px-3 py-1.5 rounded-lg text-sm bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 flex items-center gap-1.5"
+          class="btn-solid btn-info px-3 py-1.5 text-sm flex items-center gap-1.5"
           :disabled="!state.dirty"
           @click="appStore.saveCurrentScript()"
         >
@@ -131,7 +182,7 @@ function openLocation() {
           保存
         </button>
         <button
-          class="px-3 py-1.5 rounded-lg text-sm bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 flex items-center gap-1.5"
+          class="btn-solid btn-danger px-3 py-1.5 text-sm flex items-center gap-1.5"
           @click="emit('deleteCurrent')"
         >
           <Trash2 class="w-4 h-4" />

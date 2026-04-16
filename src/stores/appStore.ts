@@ -7,6 +7,7 @@ interface AppState {
   settings: SettingsData;
   treeNodes: ScriptNode[];
   runtimeRecords: Record<string, ScriptRuntimeRecord>;
+  scriptConfigs: Record<string, ScriptConfig>;
   runningPaths: Set<string>;
   selectedScriptPath: string | null;
   selectedScriptContent: string;
@@ -25,6 +26,7 @@ const state = reactive<AppState>({
   },
   treeNodes: [],
   runtimeRecords: {},
+  scriptConfigs: {},
   runningPaths: new Set<string>(),
   selectedScriptPath: null,
   selectedScriptContent: "",
@@ -81,6 +83,7 @@ async function refreshTree() {
     const tree = await api.listTree();
     state.treeNodes = tree.nodes;
     state.runtimeRecords = tree.runtimeRecords || {};
+    state.scriptConfigs = tree.scriptConfigs || {};
     state.runningPaths = new Set(tree.running || []);
 
     if (state.selectedScriptPath && !containsFile(state.treeNodes, state.selectedScriptPath)) {
@@ -134,7 +137,9 @@ async function saveCurrentScriptConfig() {
   if (!state.selectedScriptPath) {
     return;
   }
-  await api.setScriptConfig(state.selectedScriptPath, state.selectedScriptConfig);
+  const result = await api.setScriptConfig(state.selectedScriptPath, state.selectedScriptConfig);
+  state.selectedScriptConfig = result.config;
+  state.scriptConfigs[state.selectedScriptPath] = result.config;
 }
 
 async function runCurrentScript() {

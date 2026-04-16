@@ -30,22 +30,41 @@ const configState = reactive({
   args: "",
 });
 
-const currentRuntimeText = computed(() => {
-  if (!state.selectedScriptPath) {
-    return "";
-  }
-  const runtime = state.runtimeRecords[state.selectedScriptPath];
-  if (!runtime) {
-    return "尚未运行";
-  }
-
-  const date = new Date(runtime.lastRunAt).toLocaleString("zh-CN");
-  const status = runtime.lastStatus === "success" ? "成功" : "失败";
-  return `${date} · ${status} · 耗时 ${runtime.lastDurationMs}ms`;
+const deleteConfirmState = reactive<{
+  visible: boolean;
+  title: string;
+  message: string;
+  resolver: null | ((confirmed: boolean) => void);
+}>({
+  visible: false,
+  title: "",
+  message: "",
+  resolver: null,
 });
 
 const isCurrentRunning = computed(() => {
   return !!state.selectedScriptPath && state.runningPaths.has(state.selectedScriptPath);
+});
+
+const treeStats = computed(() => {
+  let files = 0;
+  let folders = 0;
+
+  const walk = (nodes: ScriptNode[]) => {
+    for (const node of nodes) {
+      if (node.kind === "file") {
+        files += 1;
+      } else {
+        folders += 1;
+        if (node.children?.length) {
+          walk(node.children);
+        }
+      }
+    }
+  };
+
+  walk(state.treeNodes);
+  return { files, folders };
 });
 
 const contextActions = computed(() => {
@@ -70,10 +89,12 @@ const contextActions = computed(() => {
         key: "folder-delete",
         label: "删除",
         handler: async () => {
-          if (globalThis.confirm(`确定删除文件夹 ${node.name} 吗？`)) {
-            await appStore.deletePath(node.relativePath);
-            appStore.pushToast("success", "文件夹已删除");
+          const confirmed = await requestDeleteConfirm("删除文件夹", `确定删除文件夹 ${node.name} 吗？`);
+          if (!confirmed) {
+            return;
           }
+          await appStore.deletePath(node.relativePath);
+          appStore.pushToast("success", "文件夹已删除");
         },
       },
     );
@@ -89,10 +110,12 @@ const contextActions = computed(() => {
       key: "delete",
       label: "删除",
       handler: async () => {
-        if (globalThis.confirm(`确定删除脚本 ${node.name} 吗？`)) {
-          await appStore.deletePath(node.relativePath);
-          appStore.pushToast("success", "脚本已删除");
+        const confirmed = await requestDeleteConfirm("删除脚本", `确定删除脚本 ${node.name} 吗？`);
+        if (!confirmed) {
+          return;
         }
+        await appStore.deletePath(node.relativePath);
+        appStore.pushToast("success", "脚本已删除");
       },
     },
   );
@@ -110,6 +133,25 @@ function showMenu(payload: { x: number; y: number; node?: ScriptNode }) {
 function hideMenu() {
   menuState.visible = false;
   menuState.node = undefined;
+}
+
+function requestDeleteConfirm(title: string, message: string) {
+  deleteConfirmState.visible = true;
+  deleteConfirmState.title = title;
+  deleteConfirmState.message = message;
+
+  return new Promise<boolean>((resolve) => {
+    deleteConfirmState.resolver = resolve;
+  });
+}
+
+function closeDeleteConfirm(confirmed: boolean) {
+  deleteConfirmState.visible = false;
+  deleteConfirmState.title = "";
+  deleteConfirmState.message = "";
+  const resolver = deleteConfirmState.resolver;
+  deleteConfirmState.resolver = null;
+  resolver?.(confirmed);
 }
 
 function findNode(nodes: ScriptNode[], relativePath: string): ScriptNode | undefined {
@@ -266,14 +308,15 @@ async function saveScriptConfig() {
   }
 
   try {
-    await api.setScriptConfig(configState.targetPath, {
+    const result = await api.setScriptConfig(configState.targetPath, {
       interpreterPath: configState.interpreterPath.trim(),
       args: configState.args.trim(),
     });
 
+    state.scriptConfigs[configState.targetPath] = result.config;
+
     if (state.selectedScriptPath === configState.targetPath) {
-      appStore.updateInterpreter(configState.interpreterPath.trim());
-      appStore.updateArgs(configState.args.trim());
+      state.selectedScriptConfig = result.config;
     }
 
     appStore.pushToast("success", "脚本配置已保存");
@@ -294,7 +337,8 @@ async function onDeleteCurrent() {
   if (!state.selectedScriptPath) {
     return;
   }
-  if (!globalThis.confirm("确定删除当前脚本吗？")) {
+  const confirmed = await requestDeleteConfirm("删除当前脚本", "确定删除当前脚本吗？");
+  if (!confirmed) {
     return;
   }
 
@@ -314,16 +358,19 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener("click", hideMenu);
   window.removeEventListener("focus", appStore.refreshTree);
+  if (deleteConfirmState.resolver) {
+    closeDeleteConfirm(false);
+  }
 });
 </script>
 
 <template>
-  <div class="size-full flex flex-col bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100">
-    <div class="h-12 bg-white/40 backdrop-blur-2xl border-b border-white/20 flex items-center px-4 shadow-sm">
+  <div class="size-full flex flex-col app-shell p-3 gap-3">
+    <div class="h-12 arc-topbar rounded-2xl flex items-center px-4">
       <div class="flex items-center justify-between w-full">
-        <div class="text-sm font-semibold text-gray-800">脚本管理器</div>
+        <div class="text-sm font-semibold text-slate-900">脚本管理器</div>
         <button
-          class="px-3 py-1.5 rounded-lg text-sm bg-white/70 border border-white/70 hover:bg-white flex items-center gap-1.5"
+          class="btn-solid btn-neutral px-3 py-1.5 flex items-center gap-1.5"
           @click="router.push('/settings')"
         >
           <Settings class="w-4 h-4" />
@@ -332,23 +379,23 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="flex-1 flex overflow-hidden p-3 gap-3">
-      <div class="w-80 rounded-2xl overflow-hidden shadow-2xl shadow-indigo-200/50 ring-1 ring-white/40 bg-white/30 backdrop-blur-2xl">
-        <div class="px-3 py-2 border-b border-white/25 bg-white/40">
+    <div class="flex-1 flex overflow-hidden gap-3">
+      <div class="w-80 rounded-2xl overflow-hidden arc-glass-sidebar">
+        <div class="px-3 py-2 border-b border-white/45 bg-white/22">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-semibold text-gray-800">脚本列表</p>
-              <p class="text-xs text-gray-600 truncate max-w-52">{{ state.settings.scriptsRoot || '未配置脚本目录' }}</p>
+              <p class="text-sm font-semibold text-slate-900">脚本列表</p>
+              <p class="text-xs text-slate-600 truncate max-w-52">{{ treeStats.files }} 个脚本 · {{ treeStats.folders }} 个分类</p>
             </div>
             <div class="flex items-center gap-1">
-              <button class="p-1.5 rounded-md hover:bg-white/60" title="刷新列表" @click="appStore.refreshTree()">
-                <RefreshCw class="w-4 h-4 text-indigo-600" />
+              <button class="btn-solid btn-neutral p-1.5 rounded-md" title="刷新列表" @click="appStore.refreshTree()">
+                <RefreshCw class="w-4 h-4" />
               </button>
-              <button class="p-1.5 rounded-md hover:bg-white/60" title="新增脚本" @click="createScriptAt('')">
-                <Plus class="w-4 h-4 text-indigo-600" />
+              <button class="btn-solid btn-primary p-1.5 rounded-md" title="新增脚本" @click="createScriptAt('')">
+                <Plus class="w-4 h-4" />
               </button>
-              <button class="p-1.5 rounded-md hover:bg-white/60" title="新增文件夹" @click="createFolderAt('')">
-                <FolderPlus class="w-4 h-4 text-indigo-600" />
+              <button class="btn-solid btn-success p-1.5 rounded-md" title="新增文件夹" @click="createFolderAt('')">
+                <FolderPlus class="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -358,6 +405,7 @@ onUnmounted(() => {
           :nodes="state.treeNodes"
           :selected-path="state.selectedScriptPath"
           :runtime-records="state.runtimeRecords"
+          :script-configs="state.scriptConfigs"
           :running-paths="state.runningPaths"
           :editing-path="renamingPath"
           @select="appStore.selectScript"
@@ -367,9 +415,8 @@ onUnmounted(() => {
         />
       </div>
 
-      <div class="flex-1 rounded-2xl overflow-hidden shadow-2xl shadow-indigo-200/50 ring-1 ring-white/40">
+      <div class="flex-1 rounded-2xl overflow-hidden arc-glass-main">
         <ScriptEditorPanel
-          :runtime-text="currentRuntimeText"
           :is-running="isCurrentRunning"
           @delete-current="onDeleteCurrent"
           @open-config="openScriptConfig()"
@@ -379,15 +426,15 @@ onUnmounted(() => {
 
     <div
       v-if="menuState.visible"
-      class="fixed z-[9998] w-32 rounded-lg border border-gray-200 bg-white shadow-xl py-1"
+      class="fixed z-[9998] w-36 rounded-xl py-1.5 arc-floating-menu"
       :style="{ left: `${menuState.x}px`, top: `${menuState.y}px` }"
       @click.stop
     >
       <button
         v-for="action in contextActions"
         :key="action.key"
-        class="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 whitespace-nowrap"
-        @click="action.handler"
+        class="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-200/45 whitespace-nowrap transition-colors"
+        @click="hideMenu(); action.handler()"
       >
         {{ action.label }}
       </button>
@@ -395,25 +442,41 @@ onUnmounted(() => {
   </div>
 
   <div
-    v-if="configState.visible"
-    class="fixed inset-0 z-[9999] bg-black/30 backdrop-blur-[1px] flex items-center justify-center"
+    v-if="deleteConfirmState.visible"
+    class="fixed inset-0 z-[10000] bg-slate-900/30 backdrop-blur-[2px] flex items-center justify-center"
+    @click="closeDeleteConfirm(false)"
   >
-    <div class="w-[560px] max-w-[92vw] rounded-xl bg-white border border-gray-200 shadow-2xl p-4">
-      <h3 class="text-base font-semibold text-gray-900">脚本配置</h3>
-      <p class="text-xs text-gray-500 mt-1">为脚本配置解释器绝对路径与运行参数</p>
+    <div class="w-[420px] max-w-[92vw] rounded-2xl arc-glass-surface p-4" @click.stop>
+      <h3 class="text-base font-semibold text-slate-900">{{ deleteConfirmState.title }}</h3>
+      <p class="text-sm text-slate-600 mt-2">{{ deleteConfirmState.message }}</p>
+
+      <div class="mt-5 flex justify-end gap-2">
+        <button class="btn-solid btn-neutral px-3 py-1.5 text-sm" @click="closeDeleteConfirm(false)">取消</button>
+        <button class="btn-solid btn-danger px-3 py-1.5 text-sm" @click="closeDeleteConfirm(true)">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <div
+    v-if="configState.visible"
+    class="fixed inset-0 z-[9999] bg-slate-900/26 backdrop-blur-[2px] flex items-center justify-center"
+  >
+    <div class="w-[560px] max-w-[92vw] rounded-2xl arc-glass-surface p-4">
+      <h3 class="text-base font-semibold text-slate-900">脚本配置</h3>
+      <p class="text-xs text-slate-600 mt-1">为脚本配置解释器绝对路径与运行参数</p>
 
       <div class="mt-4 space-y-3">
         <div>
-          <label class="text-sm text-gray-700">解释器绝对路径</label>
+          <label class="text-sm text-slate-700">解释器绝对路径</label>
           <div class="mt-1 flex gap-2">
             <input
               v-model="configState.interpreterPath"
               type="text"
-              class="flex-1 px-3 py-2 rounded-lg border border-gray-300 text-sm"
+              class="flex-1 px-3 py-2 rounded-lg text-sm arc-input"
               placeholder="例如：C:\\Python311\\python.exe"
             />
             <button
-              class="px-3 py-2 text-sm rounded-lg border border-gray-300 bg-gray-50 hover:bg-gray-100"
+              class="btn-solid btn-neutral px-3 py-2 text-sm"
               @click="pickInterpreterFile"
             >
               选择文件
@@ -422,11 +485,11 @@ onUnmounted(() => {
         </div>
 
         <div>
-          <label class="text-sm text-gray-700">运行参数</label>
+          <label class="text-sm text-slate-700">运行参数</label>
           <input
             v-model="configState.args"
             type="text"
-            class="mt-1 w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+            class="mt-1 w-full px-3 py-2 rounded-lg text-sm arc-input"
             placeholder="例如：--env prod --id 1"
           />
         </div>
@@ -434,13 +497,13 @@ onUnmounted(() => {
 
       <div class="mt-4 flex justify-end gap-2">
         <button
-          class="px-3 py-1.5 rounded-lg border border-gray-300 text-sm bg-white hover:bg-gray-50"
+          class="btn-solid btn-neutral px-3 py-1.5 text-sm"
           @click="configState.visible = false"
         >
           取消
         </button>
         <button
-          class="px-3 py-1.5 rounded-lg text-sm bg-indigo-600 text-white hover:bg-indigo-700"
+          class="btn-solid btn-primary px-3 py-1.5 text-sm"
           @click="saveScriptConfig"
         >
           保存配置

@@ -23,7 +23,7 @@ declare global {
         relativePath: string;
         interpreterPath: string;
         args: string;
-      }) => Promise<{ ok: boolean }>;
+      }) => Promise<{ ok: boolean; config: ScriptConfig }>;
       runScript: (relativePath: string) => Promise<RunResult>;
     };
   }

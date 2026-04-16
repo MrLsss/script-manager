@@ -48,32 +48,32 @@ async function saveSettings() {
 </script>
 
 <template>
-  <div class="size-full bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100 p-4">
-    <div class="h-full rounded-2xl bg-white/35 backdrop-blur-2xl ring-1 ring-white/40 shadow-2xl shadow-indigo-200/50 p-5">
+  <div class="size-full app-shell p-4">
+    <div class="h-full rounded-2xl arc-glass-main p-5">
       <div class="flex items-center justify-between mb-6">
         <button
-          class="px-3 py-1.5 rounded-lg bg-white/70 border border-white/70 hover:bg-white text-sm flex items-center gap-1.5"
+          class="btn-solid btn-neutral px-3 py-1.5 text-sm flex items-center gap-1.5"
           @click="router.push('/')"
         >
           <ArrowLeft class="w-4 h-4" />
           返回
         </button>
-        <h1 class="text-lg font-semibold text-gray-900">设置</h1>
+        <h1 class="text-lg font-semibold text-slate-900">设置</h1>
       </div>
 
       <div class="grid gap-5 max-w-3xl">
-        <div class="bg-white/50 border border-white/70 rounded-xl p-4">
-          <h2 class="text-base font-semibold text-gray-900">脚本目录</h2>
-          <p class="text-xs text-gray-600 mt-1">配置后左侧列表会递归显示该目录下所有文件夹与脚本文件。</p>
+        <div class="arc-glass-surface rounded-xl p-4">
+          <h2 class="text-base font-semibold text-slate-900">脚本目录</h2>
+          <p class="text-xs text-slate-600 mt-1">配置后左侧列表会递归显示该目录下所有文件夹与脚本文件。</p>
           <div class="mt-3 flex gap-2">
             <input
               v-model="form.scriptsRoot"
               type="text"
-              class="flex-1 px-3 py-2 rounded-lg border border-gray-200 bg-white/90 text-sm"
+              class="flex-1 px-3 py-2 rounded-lg text-sm arc-input"
               placeholder="例如：D:\\scripts"
             />
             <button
-              class="px-3 py-2 rounded-lg bg-white border border-gray-200 text-sm flex items-center gap-1.5 hover:bg-gray-50"
+              class="btn-solid btn-neutral px-3 py-2 text-sm flex items-center gap-1.5"
               @click="pickScriptsRoot"
             >
               <FolderSearch class="w-4 h-4" />
@@ -82,18 +82,18 @@ async function saveSettings() {
           </div>
         </div>
 
-        <div class="bg-white/50 border border-white/70 rounded-xl p-4">
-          <h2 class="text-base font-semibold text-gray-900">运行日志目录</h2>
-          <p class="text-xs text-gray-600 mt-1">每次运行都会创建单独日志文件，文件名包含脚本路径和脚本名。</p>
+        <div class="arc-glass-surface rounded-xl p-4">
+          <h2 class="text-base font-semibold text-slate-900">运行日志目录</h2>
+          <p class="text-xs text-slate-600 mt-1">每次运行都会创建单独日志文件，文件名包含脚本路径和脚本名。</p>
           <div class="mt-3 flex gap-2">
             <input
               v-model="form.logsRoot"
               type="text"
-              class="flex-1 px-3 py-2 rounded-lg border border-gray-200 bg-white/90 text-sm"
+              class="flex-1 px-3 py-2 rounded-lg text-sm arc-input"
               placeholder="例如：D:\\script-logs"
             />
             <button
-              class="px-3 py-2 rounded-lg bg-white border border-gray-200 text-sm flex items-center gap-1.5 hover:bg-gray-50"
+              class="btn-solid btn-neutral px-3 py-2 text-sm flex items-center gap-1.5"
               @click="pickLogsRoot"
             >
               <FolderSearch class="w-4 h-4" />
@@ -103,7 +103,7 @@ async function saveSettings() {
         </div>
 
         <div class="flex justify-end">
-          <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700" @click="saveSettings">
+          <button class="btn-solid btn-primary px-4 py-2 text-sm" @click="saveSettings">
             保存设置
           </button>
         </div>

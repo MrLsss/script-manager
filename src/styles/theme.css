@@ -39,6 +39,35 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --app-bg-start: #e9eef5;
+  --app-bg-end: #dbe4f1;
+  --arc-text-primary: #111827;
+  --arc-text-secondary: #475467;
+  --arc-text-tertiary: #667085;
+  --arc-topbar-bg: rgba(244, 248, 255, 0.74);
+  --arc-topbar-border: rgba(255, 255, 255, 0.68);
+  --arc-sidebar-bg: rgba(244, 248, 255, 0.76);
+  --arc-sidebar-border: rgba(255, 255, 255, 0.68);
+  --arc-main-bg: rgba(255, 255, 255, 0.84);
+  --arc-main-border: rgba(255, 255, 255, 0.78);
+  --arc-surface-bg: rgba(255, 255, 255, 0.9);
+  --arc-surface-border: rgba(255, 255, 255, 0.82);
+  --arc-hover-bg: rgba(74, 96, 138, 0.08);
+  --arc-selected-bg: rgba(37, 99, 235, 0.16);
+  --arc-shadow: 0 22px 48px -32px rgba(16, 24, 40, 0.45);
+  --arc-shadow-elevated: 0 30px 60px -34px rgba(16, 24, 40, 0.52);
+  --btn-primary: #2563eb;
+  --btn-primary-hover: #1d4ed8;
+  --btn-info: #0ea5e9;
+  --btn-info-hover: #0284c7;
+  --btn-neutral: #475569;
+  --btn-neutral-hover: #334155;
+  --btn-success: #16a34a;
+  --btn-success-hover: #15803d;
+  --btn-danger: #dc2626;
+  --btn-danger-hover: #b91c1c;
+  --arc-texture-grain: rgba(30, 41, 59, 0.12);
+  --arc-texture-speckle: rgba(255, 255, 255, 0.24);
 }
 
 .dark {
@@ -76,6 +105,25 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.269 0 0);
   --sidebar-ring: oklch(0.439 0 0);
+  --app-bg-start: #11141a;
+  --app-bg-end: #181e27;
+  --arc-text-primary: #f1f5f9;
+  --arc-text-secondary: #cbd5e1;
+  --arc-text-tertiary: #94a3b8;
+  --arc-topbar-bg: rgba(23, 28, 38, 0.72);
+  --arc-topbar-border: rgba(148, 163, 184, 0.34);
+  --arc-sidebar-bg: rgba(24, 30, 39, 0.78);
+  --arc-sidebar-border: rgba(148, 163, 184, 0.26);
+  --arc-main-bg: rgba(20, 25, 34, 0.86);
+  --arc-main-border: rgba(148, 163, 184, 0.2);
+  --arc-surface-bg: rgba(26, 34, 45, 0.9);
+  --arc-surface-border: rgba(148, 163, 184, 0.24);
+  --arc-hover-bg: rgba(148, 163, 184, 0.16);
+  --arc-selected-bg: rgba(59, 130, 246, 0.26);
+  --arc-shadow: 0 24px 52px -34px rgba(0, 0, 0, 0.72);
+  --arc-shadow-elevated: 0 34px 68px -30px rgba(0, 0, 0, 0.78);
+  --arc-texture-grain: rgba(148, 163, 184, 0.2);
+  --arc-texture-speckle: rgba(15, 23, 42, 0.3);
 }
 
 @theme inline {
@@ -129,6 +177,7 @@
     @apply bg-background text-foreground;
     font-size: var(--font-size);
     font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    color: var(--arc-text-primary);
   }
 
   h1 {
@@ -162,6 +211,245 @@
     font-size: var(--text-base);
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
+  }
+}
+
+@layer components {
+  .app-shell {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background-image:
+      radial-gradient(circle at 14% -5%, rgba(255, 255, 255, 0.82), transparent 42%),
+      linear-gradient(148deg, var(--app-bg-start), var(--app-bg-end));
+  }
+
+  .app-shell::before {
+    content: "";
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 46%;
+    pointer-events: none;
+    z-index: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.42);
+    opacity: 0.52;
+    background-image:
+      radial-gradient(circle at 8px 0, rgba(255, 255, 255, 0.78) 0 7px, transparent 7.4px),
+      linear-gradient(
+        to bottom,
+        color-mix(in oklab, var(--app-bg-end) 72%, white 28%) 0%,
+        color-mix(in oklab, var(--app-bg-end) 88%, black 12%) 100%
+      ),
+      repeating-radial-gradient(circle at 20% 20%, var(--arc-texture-grain) 0 1px, transparent 1.3px 3.6px),
+      repeating-radial-gradient(circle at 80% 70%, var(--arc-texture-speckle) 0 0.8px, transparent 1px 3px);
+    background-size:
+      16px 16px,
+      100% 100%,
+      120px 120px,
+      140px 140px;
+    background-repeat: repeat-x, no-repeat, repeat, repeat;
+    background-position: 0 0, 0 0, 0 0, 0 0;
+  }
+
+  .app-shell::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.14;
+    background-image:
+      repeating-radial-gradient(circle at 10% 10%, var(--arc-texture-grain) 0 0.8px, transparent 1px 3.3px),
+      repeating-radial-gradient(circle at 85% 75%, var(--arc-texture-speckle) 0 0.7px, transparent 0.9px 3px);
+    background-size: 118px 118px, 132px 132px;
+    background-repeat: repeat, repeat;
+  }
+
+  .app-shell > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .arc-topbar {
+    background: var(--arc-topbar-bg);
+    border: 1px solid var(--arc-topbar-border);
+    box-shadow: var(--arc-shadow);
+    backdrop-filter: blur(24px) saturate(145%);
+  }
+
+  .arc-glass-sidebar {
+    background: var(--arc-sidebar-bg);
+    border: 1px solid var(--arc-sidebar-border);
+    box-shadow: var(--arc-shadow);
+    backdrop-filter: blur(26px) saturate(145%);
+  }
+
+  .arc-glass-main {
+    background: var(--arc-main-bg);
+    border: 1px solid var(--arc-main-border);
+    box-shadow: var(--arc-shadow-elevated);
+    backdrop-filter: blur(22px) saturate(142%);
+  }
+
+  .arc-glass-surface {
+    background: var(--arc-surface-bg);
+    border: 1px solid var(--arc-surface-border);
+    box-shadow: var(--arc-shadow);
+    backdrop-filter: blur(18px) saturate(138%);
+  }
+
+  .arc-floating-menu {
+    background: color-mix(in oklab, var(--arc-surface-bg) 96%, #ffffff 4%);
+    border: 1px solid var(--arc-surface-border);
+    box-shadow: var(--arc-shadow-elevated);
+    backdrop-filter: blur(18px) saturate(140%);
+  }
+
+  .arc-input {
+    border: 1px solid color-mix(in oklab, var(--arc-text-tertiary) 20%, transparent);
+    background: color-mix(in oklab, var(--arc-surface-bg) 80%, #ffffff 20%);
+    color: var(--arc-text-primary);
+  }
+
+  .arc-input::placeholder {
+    color: var(--arc-text-tertiary);
+  }
+
+  .arc-input:focus {
+    outline: none;
+    border-color: color-mix(in oklab, var(--btn-primary) 46%, white);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--btn-primary) 20%, transparent);
+  }
+
+  .btn-solid {
+    border: 1px solid transparent;
+    border-radius: 0.625rem;
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 600;
+    transition: background-color 160ms ease, box-shadow 160ms ease, transform 120ms ease, opacity 140ms ease;
+    box-shadow: 0 10px 20px -14px rgba(15, 23, 42, 0.85);
+  }
+
+  .btn-solid:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 22px -14px rgba(15, 23, 42, 0.9);
+  }
+
+  .btn-solid:active {
+    transform: translateY(0);
+    box-shadow: 0 6px 14px -12px rgba(15, 23, 42, 0.82);
+  }
+
+  .btn-solid:disabled {
+    opacity: 0.56;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .btn-primary {
+    background: var(--btn-primary);
+  }
+
+  .btn-primary:hover {
+    background: var(--btn-primary-hover);
+  }
+
+  .btn-info {
+    background: var(--btn-info);
+  }
+
+  .btn-info:hover {
+    background: var(--btn-info-hover);
+  }
+
+  .btn-neutral {
+    background: var(--btn-neutral);
+  }
+
+  .btn-neutral:hover {
+    background: var(--btn-neutral-hover);
+  }
+
+  .btn-success {
+    background: var(--btn-success);
+  }
+
+  .btn-success:hover {
+    background: var(--btn-success-hover);
+  }
+
+  .btn-danger {
+    background: var(--btn-danger);
+  }
+
+  .btn-danger:hover {
+    background: var(--btn-danger-hover);
+  }
+
+  .arc-tree-item {
+    transition: background-color 140ms ease, border-color 140ms ease;
+  }
+
+  .arc-tree-item:hover {
+    background: var(--arc-hover-bg);
+  }
+
+  .arc-tree-item-selected {
+    background: var(--arc-selected-bg);
+    border: 1px solid color-mix(in oklab, var(--btn-primary) 40%, transparent);
+    box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.6);
+  }
+
+  .arc-folder-row {
+    background: color-mix(in oklab, var(--arc-surface-bg) 82%, transparent);
+    border-color: color-mix(in oklab, var(--arc-text-tertiary) 16%, transparent);
+  }
+
+  .arc-folder-row-active {
+    background:
+      linear-gradient(135deg, color-mix(in oklab, var(--btn-primary) 13%, #fff), color-mix(in oklab, var(--arc-surface-bg) 90%, #fff)),
+      repeating-radial-gradient(circle at 20% 30%, rgba(59, 130, 246, 0.12) 0 0.8px, transparent 1px 3px);
+    border-color: color-mix(in oklab, var(--btn-primary) 38%, transparent);
+    box-shadow: 0 8px 22px -18px rgba(37, 99, 235, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  }
+
+  .arc-file-card {
+    background: color-mix(in oklab, var(--arc-surface-bg) 86%, transparent);
+    border-color: color-mix(in oklab, var(--arc-text-tertiary) 15%, transparent);
+    box-shadow: 0 10px 22px -22px rgba(15, 23, 42, 0.55);
+  }
+
+  .arc-file-card-selected {
+    background:
+      linear-gradient(
+        145deg,
+        color-mix(in oklab, var(--btn-primary) 14%, #fff) 0%,
+        color-mix(in oklab, var(--arc-surface-bg) 92%, #fff) 100%
+      ),
+      repeating-radial-gradient(circle at 18% 25%, rgba(59, 130, 246, 0.12) 0 0.85px, transparent 1px 3px);
+    border-color: color-mix(in oklab, var(--btn-primary) 40%, transparent);
+    box-shadow:
+      0 14px 30px -24px rgba(37, 99, 235, 0.62),
+      inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    transform: translateY(-1px);
+  }
+
+  .arc-editor-stage {
+    background:
+      linear-gradient(180deg, color-mix(in oklab, var(--arc-main-bg) 74%, #dbe4f1) 0%, color-mix(in oklab, var(--arc-main-bg) 88%, #cfd9e8) 100%),
+      repeating-radial-gradient(circle at 16% 18%, rgba(71, 85, 105, 0.1) 0 0.9px, transparent 1px 3.1px),
+      repeating-radial-gradient(circle at 82% 73%, rgba(255, 255, 255, 0.28) 0 0.8px, transparent 0.9px 3px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.66), inset 0 0 0 1px rgba(148, 163, 184, 0.08);
+  }
+
+  .arc-muted {
+    color: var(--arc-text-tertiary);
+  }
+
+  .arc-subtle {
+    color: var(--arc-text-secondary);
   }
 }
 

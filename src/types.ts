@@ -22,6 +22,10 @@ export interface ScriptRuntimeRecord {
 export interface ScriptConfig {
   interpreterPath: string;
   args: string;
+  interpreterKind?: string;
+  interpreterName?: string;
+  interpreterVersion?: string;
+  interpreterDisplay?: string;
 }
 
 export interface SettingsData {
@@ -40,6 +44,7 @@ export interface TreeResult {
   nodes: ScriptNode[];
   runtimeRecords: Record<string, ScriptRuntimeRecord>;
   running: string[];
+  scriptConfigs: Record<string, ScriptConfig>;
 }
 
 export interface RunResult {
