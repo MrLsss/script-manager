@@ -22,6 +22,20 @@ let isQuitting = false;
 
 const runningScripts = new Map();
 
+function resolveIconPath(fileName) {
+  const candidates = [
+    path.join(__dirname, "..", "public", "icons", fileName),
+    path.join(__dirname, "..", "dist", "icons", fileName),
+  ];
+
+  for (const iconPath of candidates) {
+    if (fs.existsSync(iconPath)) {
+      return iconPath;
+    }
+  }
+  return "";
+}
+
 function getConfigPath() {
   return path.join(app.getPath("userData"), "config.json");
 }
@@ -310,16 +324,18 @@ function createTray() {
     return;
   }
 
-  const icon = nativeImage
-    .createFromDataURL(
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1+jfqAAAAz0lEQVR42mP8//8/AyUYTFhY2PD//38GHEA0xMTEBPFfGATiUQxQ8f//f8YQx0aQ/2cYGBhY2R8Qv3//TjB3Y8A0h2YQ7sA4Q1Q8f/4cHh4eJjB0g3g+vXr+f///0YwMDDg+fPnM4g3YkL8+fMnxu3bt2cQ7g4wT0j8+fPnYQYGBkYw9wJi4v///4dxg4ODQ8YfP36cQbQhQqCwYcMGRjC3gSg5f/78YQYGBkYwN0RkYGBgMIP4PwMDA8P//x8MDAwM4M8AAIhXGv1A4E0kAAAAAElFTkSuQmCC",
-    )
-    .resize({ width: 16, height: 16 });
+  const trayIconPath = resolveIconPath("tray-icon-16-v2.png") || resolveIconPath("tray-icon-16.png");
+  const icon = trayIconPath
+    ? nativeImage.createFromPath(trayIconPath).resize({ width: 16, height: 16 })
+    : nativeImage.createEmpty();
 
   tray = new Tray(icon);
   tray.setToolTip("脚本管理器");
   tray.on("double-click", () => {
     if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
       mainWindow.show();
       mainWindow.focus();
     }
@@ -330,6 +346,9 @@ function createTray() {
       label: "显示主窗口",
       click: () => {
         if (mainWindow) {
+          if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+          }
           mainWindow.show();
           mainWindow.focus();
         }
@@ -719,12 +738,14 @@ function registerIpc() {
 }
 
 function createWindow() {
+  const windowIconPath = resolveIconPath("taskbar-icon-256-v2.png") || resolveIconPath("taskbar-icon-256.png");
   mainWindow = new BrowserWindow({
     width: 1380,
     height: 900,
     minWidth: 1080,
     minHeight: 680,
     backgroundColor: "#eef2ff",
+    icon: windowIconPath || undefined,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -738,9 +759,9 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
 
-  mainWindow.on("minimize", (event) => {
-    event.preventDefault();
-    mainWindow.hide();
+  // Keep taskbar icon on minimize: use default OS minimize behavior.
+  mainWindow.on("minimize", () => {
+    mainWindow.setSkipTaskbar(false);
   });
 
   mainWindow.on("close", (event) => {

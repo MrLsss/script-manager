@@ -86,8 +86,21 @@ src/views/              # Home / Settings 页面
 src/components/         # 脚本树、编辑器、toast 等组件
 src/stores/             # 应用状态管理
 src/services/           # 渲染层 API 封装
+build/icons/            # 安装包图标产物（Windows/macOS/Linux）
 ```
 
 ## 配置与数据落盘
 
 应用会在 Electron `userData` 目录下维护配置和运行记录（JSON 文件），并在配置的日志目录下写入运行日志。
+
+## 生成安装包图标
+
+```bash
+pnpm run icons:generate
+```
+
+生成后可直接用于三平台打包：
+
+- Windows（安装包/EXE）：`build/icons/icon.ico`
+- macOS（App/DMG）：`build/icons/icon.icns`
+- Linux（桌面图标）：`build/icons/512x512.png`
