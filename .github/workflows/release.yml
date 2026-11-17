@@ -17,29 +17,27 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - name: Build macOS and Linux
+      - name: Build macOS (DMG) and Linux
         run: >
           go tool mygo build
-          -skip-dmg
           -skip-installer
-          -platform darwin/arm64,darwin/amd64,linux/amd64
-      - name: Archive
+          -platform darwin/arm64,darwin/amd64,linux/amd64,linux/arm64
+      - name: Collect installers
         run: |
           set -e
           mkdir -p release
-          for d in dist/darwin-*/; do
-            [ -d "$d/script-manager.app" ] || continue
-            (cd "$d" && zip -qry "../../release/$(basename "$d").zip" "script-manager.app")
-          done
-          for d in dist/linux-*/; do
-            tar -czf "release/$(basename "$d").tar.gz" -C "$d" .
-          done
-          ls -l release
+          cp dist/darwin-arm64/*.dmg release/
+          cp dist/darwin-amd64/*.dmg release/
+          cp dist/linux-amd64/*.deb release/
+          cp dist/linux-amd64/*-linux-amd64.tar.gz release/
+          cp dist/linux-arm64/*.deb release/
+          cp dist/linux-arm64/*-linux-arm64.tar.gz release/
+          ls -lh release
       - name: Checksums
         run: |
           cd release
-          shasum -a 256 * > checksums-macos-linux.txt
-          cat checksums-macos-linux.txt
+          shasum -a 256 * > checksums.txt
+          cat checksums.txt
       - uses: actions/upload-artifact@v4
         with:
           name: macos-linux
@@ -53,21 +51,26 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - name: Build Windows with installer
-        run: go tool mygo build -platform windows/amd64
+      - name: Build Windows installers
+        run: go tool mygo build -platform windows/amd64,windows/arm64
+      - name: Collect installers
+        shell: bash
+        run: |
+          set -e
+          mkdir -p release
+          cp dist/windows-amd64/script-manager-setup-*.exe release/
+          cp dist/windows-arm64/script-manager-setup-*.exe release/
+          ls -lh release
       - name: Checksums
         shell: bash
         run: |
-          cd dist/windows-amd64
-          rm -f checksums-windows.txt
-          sha256sum script-manager*.exe > checksums-windows.txt
-          cat checksums-windows.txt
+          cd release
+          sha256sum * > checksums.txt
+          cat checksums.txt
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: |
-            dist/windows-amd64/script-manager*.exe
-            dist/windows-amd64/checksums-windows.txt
+          path: release/*
 
   publish:
     needs: [macos-linux, windows]
@@ -83,9 +86,7 @@ jobs:
           cp artifacts/macos-linux/* out/
           cp artifacts/windows/* out/
           cd out
-          rm -f checksums-macos-linux.txt checksums-windows.txt
-          # Every published file, one line each, so the app can verify what it
-          # downloads (see updater.go: checksumFor).
+          rm -f checksums.txt
           sha256sum * > checksums.txt
           cat checksums.txt
       - uses: softprops/action-gh-release@v2
