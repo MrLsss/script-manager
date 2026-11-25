@@ -28,8 +28,10 @@
 | 平台 | 文件 |
 | --- | --- |
 | macOS 12+（Intel / Apple Silicon） | `script-manager-<版本>-<arch>.dmg` |
-| Windows | `script-manager-setup-<版本>.exe` |
-| Linux | `script-manager_<版本>_<arch>.deb`、`.rpm`、`-linux-<arch>.tar.gz`、`PKGBUILD` |
+| Windows x64 / ARM64 | `script-manager-setup-<版本>-<arch>.exe` |
+| Linux x64 / ARM64 | `script-manager_<版本>_<arch>.deb`、`script-manager-<版本>-linux-<arch>.tar.gz` |
+
+每个 Release 都带一份 `checksums.txt`，下载后可以先核对。
 
 第一次打开：
 
@@ -203,9 +205,9 @@ go tool mygo build -skip-dmg -skip-installer \
   -platform darwin/arm64,darwin/amd64,windows/amd64,linux/amd64
 ```
 
-产物在 `dist/`：macOS 是 `dist/darwin-<arch>/script-manager.app`（含 dmg），Windows 是 `dist/windows-amd64/script-manager.exe`（CI 另出安装包），Linux 是 `dist/linux-amd64/` 下的可执行文件、`.tar.gz`、`.deb`、`.rpm` 和 `PKGBUILD`。应用配置在 `mygo.json`，图标 `resources/icon.png` 由 `go run tools/icon.go` 生成。
+产物在 `dist/`：macOS 是 `dist/darwin-<arch>/script-manager.app`（含 dmg），Windows 是 `dist/windows-amd64/script-manager.exe`，Linux 是 `dist/linux-amd64/` 下的可执行文件、`.deb` 和 `.tar.gz`；不带 `-skip-installer` 时还会额外生成 `.rpm` 与 `PKGBUILD`。应用配置在 `mygo.json`，图标 `resources/icon.png` 由 `go run tools/icon.go` 生成。
 
-推送 `v*` 标签时，`.github/workflows/release.yml` 会构建三端、生成 `checksums.txt` 并挂到对应的 GitHub Release。
+推送 `v*` 标签时，`.github/workflows/release.yml` 会构建三端、上传 dmg / setup.exe / deb / tar.gz，生成 `checksums.txt` 并挂到对应的 GitHub Release。
 
 ## 致谢
 
