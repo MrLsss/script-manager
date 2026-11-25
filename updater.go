@@ -24,7 +24,7 @@ import (
 
 // appVersion is the version shown by the update check; keep it in step with
 // mygo.json.
-const appVersion = "0.1.0"
+const appVersion = "0.2.0"
 
 // previousUpdates are the temp directories of earlier downloads, cleared when
 // a new download starts.

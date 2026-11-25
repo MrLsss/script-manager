@@ -158,7 +158,8 @@ func interpStateColor(t *ui.Theme, state string) ui.Color {
 }
 
 func (a *App) runsPage(c *ui.Context) {
-	ui.Split(c, &a.runsW, func() { a.runListPane(c) }, func() { a.runDetailPane(c) }).SplitReset(320)
+	ui.Split(c, &a.runsW, func() { a.runListPane(c) }, func() { a.runDetailPane(c) }).
+		Grow(1).FillWidth().SplitReset(320)
 }
 
 func (a *App) runListPane(c *ui.Context) {
@@ -167,7 +168,11 @@ func (a *App) runListPane(c *ui.Context) {
 	ui.Column(c).Grow(1).MinWidth(0).Background(t.Background).Children(func() {
 		ui.Column(c).Padding(10).Gap(8).Children(func() {
 			ui.Segmented(c, &a.runFilter, tr("全部"), tr("成功"), tr("失败"))
-			ui.Textf(c, tr("%d 条记录"), len(runs)).FontSize(11).TextColor(t.TextMuted)
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Textf(c, tr("%d 条记录"), len(runs)).FontSize(11).TextColor(t.TextMuted)
+				ui.Spacer(c)
+				a.runBulkControls(c, runs)
+			})
 		})
 		ui.Divider(c)
 		ui.Scroll(c).Grow(1).Children(func() {
@@ -183,6 +188,68 @@ func (a *App) runListPane(c *ui.Context) {
 	})
 }
 
+// runBulkControls selects and deletes runs of the list shown.
+func (a *App) runBulkControls(c *ui.Context, runs []Run) {
+	all := len(runs) > 0
+	for _, run := range runs {
+		if !a.runChecks[run.ID] {
+			all = false
+			break
+		}
+	}
+	ui.Checkbox(c, &all, tr("全选")).OnChange(func() {
+		for _, run := range runs {
+			if all {
+				a.runChecks[run.ID] = true
+			} else {
+				delete(a.runChecks, run.ID)
+			}
+		}
+	})
+	selected := a.selectedRunIDs()
+	if ui.Button(c, trf("删除选中 (%d)", len(selected))).Padding(1, 8).
+		Disabled(len(selected) == 0).Clicked() {
+		a.deleteRuns(selected)
+	}
+}
+
+// selectedRunIDs lists the checked runs that still exist.
+func (a *App) selectedRunIDs() []string {
+	var out []string
+	for _, run := range a.store.Runs() {
+		if a.runChecks[run.ID] {
+			out = append(out, run.ID)
+		}
+	}
+	return out
+}
+
+// deleteRuns asks once, then removes the records and their logs.
+func (a *App) deleteRuns(ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	a.confirmAction(tr("删除运行记录"),
+		trf("%d 条运行记录和对应的日志文件会被删除，此操作不可撤销。", len(ids)),
+		[]string{"取消", "删除"}, func(i int) {
+			if i != 1 {
+				return
+			}
+			removed, err := a.store.DeleteRuns(ids)
+			if err != nil {
+				a.alertError("删除失败", err.Error())
+				return
+			}
+			for _, id := range ids {
+				delete(a.runChecks, id)
+				if a.runOpen == id {
+					a.runOpen = ""
+				}
+			}
+			a.showNotice(trf("已删除 %d 条运行记录", removed))
+		})
+}
+
 func (a *App) runRow(c *ui.Context, run Run) {
 	t := c.Theme()
 	bg := t.Background
@@ -196,6 +263,14 @@ func (a *App) runRow(c *ui.Context, run Run) {
 	ui.Column(c).Padding(8).Radius(6).Gap(2).Background(bg).
 		OnClick(func() { a.runOpen = run.ID }).Children(func() {
 		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+			checked := a.runChecks[run.ID]
+			ui.Checkbox(c, &checked, "").OnChange(func() {
+				if checked {
+					a.runChecks[run.ID] = true
+				} else {
+					delete(a.runChecks, run.ID)
+				}
+			})
 			ui.Box(c).Width(6).Height(6).Radius(3).Background(statusColor(t, run.Status))
 			ui.Text(c, name).FontSize(12.5).TextColor(t.Text).SingleLine().Grow(1)
 			ui.Text(c, fmtAgo(run.StartedAt)).FontSize(10.5).TextColor(t.TextMuted)

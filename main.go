@@ -34,13 +34,17 @@ func main() {
 		a.applyAppearance()
 
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:     "script-manager",
-			Width:     1180,
-			Height:    760,
-			MinWidth:  960,
-			MinHeight: 620,
-			StateKey:  "script-manager",
-			Content:   ui.View(a.view),
+			// A hidden title bar shows no title text at all; the view draws the
+			// strip under the window controls itself (see A.titleBar).
+			Title:          "",
+			TitleBarStyle:  mygo.TitleBarHidden,
+			TitleBarHeight: titleBarHeight,
+			Width:          1180,
+			Height:         760,
+			MinWidth:       960,
+			MinHeight:      620,
+			StateKey:       "script-manager",
+			Content:        ui.View(a.view),
 		})
 		a.win = win
 		a.setupMenu()

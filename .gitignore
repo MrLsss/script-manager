@@ -2,3 +2,6 @@
 dist/
 .DS_Store
 /script-manager
+
+# 测试文件只留在本地，不随仓库分发
+*_test.go

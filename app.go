@@ -51,6 +51,8 @@ type App struct {
 	importMu          sync.Mutex
 	pendingImport     atomic.Pointer[pendingImportResult]
 	importRunning     atomic.Bool
+	importQueue       []importJob
+	queueMu           sync.Mutex
 	uiMu              sync.Mutex
 	folderCountsCache map[string]int
 	lastRunCache      map[string]Run
@@ -83,6 +85,7 @@ type App struct {
 	runSel     int
 	runFilter  int
 	runOpen    string
+	runChecks  map[string]bool
 
 	logScript  string
 	logRunID   string
@@ -93,13 +96,9 @@ type App struct {
 	toast      atomic.Pointer[toastState]
 	toastToken atomic.Int64
 
-	timeoutText     string
-	concurrencyText string
-	updateRepoText  string
-	logLimitText    string
-	retentionLabel  string
-	keepRev         bool
-	appearanceIdx   int
+	updateRepoText string
+	keepRev        bool
+	appearanceIdx  int
 
 	detecting atomic.Bool
 
@@ -302,6 +301,7 @@ func newApp(settings Settings, store *Store) *App {
 		files:      map[string]string{},
 		tabs:       map[string][]string{},
 		encodings:  map[string]textEncoding{},
+		runChecks:  map[string]bool{},
 	}
 	a.bindStore(store)
 	if path, err := remoteStorePath(); err == nil {
@@ -314,11 +314,7 @@ func newApp(settings Settings, store *Store) *App {
 	}
 	a.bundle.conflict = string(ConflictCopy)
 	a.applyProxySettings()
-	a.timeoutText = fmt.Sprint(settings.DefaultTimeout)
-	a.concurrencyText = fmt.Sprint(settings.Concurrency)
 	a.updateRepoText = settings.UpdateRepo
-	a.logLimitText = fmt.Sprint(settings.MaxLogBytes >> 20)
-	a.retentionLabel = trf("%d 天", settings.RetentionDays)
 	a.keepRev = settings.KeepRevisions > 0
 	a.applyLanguage()
 	a.checkLibraryWrite()
@@ -345,14 +341,49 @@ func (a *App) view(c *ui.Context) {
 	a.consumePendingImport()
 	theme.Apply(c)
 	ui.Column(c).Fill().Children(func() {
+		a.titleBar(c)
 		ui.Split(c, &a.sidebarW, func() { a.sidebar(c) }, func() { a.mainPane(c) }).
 			Grow(1).FillWidth().SplitReset(280)
-		if t := a.toast.Load(); t != nil && t.text != "" {
-			a.toastBar(c, t.text)
-		}
+		a.statusBars(c)
 		a.dialogs(c)
 	})
 	a.shortcuts(c)
+}
+
+// titleBarHeight is the strip the window controls sit in, above the content.
+const titleBarHeight = 32
+
+// titleBar is the room the window controls take: dragging it moves the window,
+// and the window shows no title text there.
+func (a *App) titleBar(c *ui.Context) {
+	bar := c.TitleBar()
+	ui.Row(c).Height(max(bar.Height, titleBarHeight)).FillWidth().
+		Padding(0, bar.Right, 0, bar.Left).DragWindow()
+}
+
+// statusBars floats the import progress and the notice over the bottom of the
+// window. They are overlays rather than rows: a row that comes and goes would
+// resize everything above it, which showed up as the sidebar jumping up for a
+// couple of seconds after every action.
+func (a *App) statusBars(c *ui.Context) {
+	importing := a.importData()
+	toast := a.toast.Load()
+	hasToast := toast != nil && toast.text != ""
+	if !importing.busy && !hasToast {
+		return
+	}
+	// The bars sit over the main pane, right of the sidebar, so they never
+	// cover the navigation.
+	ui.Overlay(c, func() {
+		bottom := float32(16)
+		if importing.busy {
+			a.importBar(c, importing.status)
+			bottom = 48
+		}
+		if hasToast {
+			a.toastBar(c, toast.text, bottom)
+		}
+	})
 }
 
 func (a *App) mainPane(c *ui.Context) {
@@ -766,7 +797,11 @@ func (a *App) sidebar(c *ui.Context) {
 		ui.SearchField(c, &a.query).Placeholder(tr("搜索名称、入口、文件夹或日志"))
 		ui.Segmented(c, &a.filter, tr("全部"), tr("最近")).FillEqually()
 		ui.Scroll(c).Grow(1).Children(func() {
-			ui.Column(c).Gap(1).Children(func() {
+			// The tree itself takes drops: a row takes its own, and what is
+			// left of the column means the root of the library.
+			tree := ui.Column(c).Gap(1).FillHeight()
+			a.dropTarget(c, tree, "", false)
+			tree.Children(func() {
 				if a.query != "" || a.filter == 1 {
 					a.flatList(c)
 					return
@@ -814,6 +849,62 @@ func (a *App) navRow(c *ui.Context, path string, icon *ui.SVG, label string) {
 	})
 }
 
+// dragItem is what a sidebar row carries while it is dragged. Folder and
+// script ids never collide, but the kind makes the drop rules explicit.
+type dragItem struct {
+	kind string // "script" or "folder"
+	id   string
+}
+
+// dropTarget makes an element take dragged sidebar rows and files dragged in
+// from the file manager. A row highlights while a row hovers it.
+func (a *App) dropTarget(c *ui.Context, e ui.Element, folderID string, highlight bool) {
+	if _, over := ui.DragOver[dragItem](e); over && highlight {
+		e.Border(1, c.Theme().Accent)
+	}
+	if item, ok := ui.Drop[dragItem](e); ok {
+		a.dropOnFolder(folderID, item)
+	}
+	if files := e.DroppedFiles(); len(files) > 0 {
+		a.dropFiles(folderID, files)
+	}
+}
+
+// dropOnFolder moves what was dropped into a folder, "" for the root.
+func (a *App) dropOnFolder(folderID string, item dragItem) {
+	switch item.kind {
+	case "script":
+		moved, err := a.store.MoveScript(item.id, folderID)
+		if err != nil {
+			a.alertError("无法移动", err.Error())
+			return
+		}
+		a.folderOpen[folderID] = true
+		a.forgetScript(item.id)
+		a.showNotice(trf("已移动「%s」", moved.Name))
+	case "folder":
+		moved, err := a.store.MoveFolder(item.id, folderID)
+		if err != nil {
+			a.alertError("无法移动", err.Error())
+			return
+		}
+		a.folderOpen[folderID] = true
+		a.showNotice(trf("已移动「%s」", moved.Name))
+	}
+}
+
+// dropFiles imports paths dragged in from the file manager: a folder becomes a
+// script, a file becomes a single-file script.
+func (a *App) dropFiles(folderID string, paths []string) {
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		a.startImport(info.IsDir(), p, folderID, defaultImportName(p, info.IsDir()))
+	}
+}
+
 func (a *App) folderTree(c *ui.Context, parent string, depth int) {
 	folders := a.store.Folders()
 	sort.SliceStable(folders, func(i, j int) bool { return folders[i].Position < folders[j].Position })
@@ -845,8 +936,9 @@ func (a *App) folderTree(c *ui.Context, parent string, depth int) {
 func (a *App) folderRow(c *ui.Context, f Folder, depth int) {
 	t := c.Theme()
 	count := a.folderCount(f.ID)
-	ui.Row(c).Height(30).PaddingX(6).Radius(6).Gap(6).MarginStart(float32(depth) * 14).
-		AlignItems(ui.Center).OnClick(func() { a.folderOpen[f.ID] = !a.folderOpen[f.ID] }).
+	row := ui.Row(c).Height(30).PaddingX(6).Radius(6).Gap(6).MarginStart(float32(depth) * 14).
+		AlignItems(ui.Center).Drag(dragItem{kind: "folder", id: f.ID}).
+		OnClick(func() { a.folderOpen[f.ID] = !a.folderOpen[f.ID] }).
 		ContextMenu(func(m *ui.Menu) {
 			if m.Item(tr("新建脚本…")).Chosen() {
 				a.sideSel = f.ID
@@ -879,7 +971,9 @@ func (a *App) folderRow(c *ui.Context, f Folder, depth int) {
 						a.showNotice("文件夹已移入回收站")
 					})
 			}
-		}).Children(func() {
+		})
+	a.dropTarget(c, row, f.ID, true)
+	row.Children(func() {
 		if a.folderOpen[f.ID] {
 			ui.Icon(c, lucide.ChevronDown()).Width(12).Height(12).TextColor(t.TextMuted)
 		} else {
@@ -898,8 +992,8 @@ func (a *App) scriptRow(c *ui.Context, sc Script, depth int) {
 	if active {
 		bg = t.Surface
 	}
-	ui.Row(c).Height(30).PaddingX(6).Radius(6).Gap(6).MarginStart(float32(depth) * 14).
-		Background(bg).AlignItems(ui.Center).
+	row := ui.Row(c).Height(30).PaddingX(6).Radius(6).Gap(6).MarginStart(float32(depth) * 14).
+		Background(bg).AlignItems(ui.Center).Drag(dragItem{kind: "script", id: sc.ID}).
 		OnClick(func() {
 			a.selected = sc.ID
 			a.router.Push("/scripts/" + sc.ID)
@@ -939,7 +1033,10 @@ func (a *App) scriptRow(c *ui.Context, sc Script, depth int) {
 						}
 					})
 			}
-		}).Children(func() {
+		})
+	// A script takes drops too: what is dropped on it lands in its folder.
+	a.dropTarget(c, row, sc.FolderID, false)
+	row.Children(func() {
 		ui.Icon(c, iconFor(sc.Language)).Width(14).Height(14).TextColor(t.TextMuted)
 		ui.Text(c, sc.Name).FontSize(12.5).TextColor(t.Text).SingleLine().Grow(1)
 		if sc.Dangerous {
@@ -1060,10 +1157,15 @@ func (a *App) welcomePage(c *ui.Context) {
 	})
 }
 
-func (a *App) toastBar(c *ui.Context, text string) {
+// toastBar is a floating pill over the main pane, so it never takes layout
+// space and never covers the sidebar.
+func (a *App) toastBar(c *ui.Context, text string, bottom float32) {
 	t := c.Theme()
-	ui.Row(c).Height(30).PaddingX(16).Background(t.Inverse).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, tr(text)).FontSize(12).TextColor(t.InverseText)
+	// The pill is the inverse of the page: text colour behind, background
+	// colour for the text, which holds in both light and dark themes.
+	ui.Row(c).Absolute().Left(a.sidebarW+16).Bottom(bottom).Height(30).Padding(0, 14).
+		Radius(8).Background(t.Text).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, tr(text)).FontSize(12).TextColor(t.Background)
 	})
 }
 

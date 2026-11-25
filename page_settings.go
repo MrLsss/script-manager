@@ -6,12 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"github.com/lobehub/lobe-mygo/pkg/lucide"
 )
 
 func (a *App) settingsPage(c *ui.Context) {
@@ -48,39 +46,31 @@ func (a *App) settingsPage(c *ui.Context) {
 				if ui.Button(c, tr("导入…")).Padding(2, 10).Clicked() {
 					a.openImportDialog()
 				}
-				ui.Text(c, tr("打包成 zip，可在另一台设备导入")).FontSize(12).TextColor(t.TextMuted)
 			})
 
 			a.settingsSection(c, "运行")
 			a.settingsField(c, "默认超时", func() {
-				if ui.TextInput(c, &a.timeoutText).Width(80).Changed() {
-					if n, err := strconv.Atoi(strings.TrimSpace(a.timeoutText)); err == nil && n >= 0 {
-						a.settings.DefaultTimeout = n
-						a.saveSettings()
-					}
-				}
-				ui.Text(c, tr("秒，0 表示不限制")).FontSize(12).TextColor(t.TextMuted)
+				labels, values := timeoutOptions()
+				a.settingsChoice(c, labels, values, a.settings.DefaultTimeout, func(v int) {
+					a.settings.DefaultTimeout = v
+					a.saveSettings()
+				})
 			})
 			a.settingsField(c, "并发运行", func() {
-				if ui.TextInput(c, &a.concurrencyText).Width(70).Changed() {
-					if n, err := strconv.Atoi(strings.TrimSpace(a.concurrencyText)); err == nil && n >= 0 {
-						a.settings.Concurrency = n
-						a.saveSettings()
-					}
-				}
-				ui.Textf(c, tr("个脚本同时运行，0 表示自动；本机 %d 核，建议 %d"),
-					runtime.NumCPU(), suggestedConcurrency()).FontSize(12).TextColor(t.TextMuted)
+				labels, values := concurrencyOptions()
+				a.settingsChoice(c, labels, values, a.settings.Concurrency, func(v int) {
+					a.settings.Concurrency = v
+					a.saveSettings()
+				})
 			})
 			a.settingsField(c, "运行结束通知", func() {
 				ui.Switch(c, &a.settings.Notify).OnChange(func() { a.saveSettings() })
-				ui.Text(c, tr("运行结束时发送系统通知")).FontSize(12).TextColor(t.TextMuted)
 			})
 			a.settingsField(c, "日志脱敏", func() {
 				ui.Switch(c, &a.settings.RedactLogs).OnChange(func() {
 					a.runner.SetRedaction(a.settings.RedactLogs)
 					a.saveSettings()
 				})
-				ui.Text(c, tr("把 token、password、Bearer 等值替换成 ***")).FontSize(12).TextColor(t.TextMuted)
 			})
 			a.settingsField(c, "完成后展开日志面板", func() {
 				ui.Switch(c, &a.settings.OpenPanel).OnChange(func() { a.saveSettings() })
@@ -88,28 +78,21 @@ func (a *App) settingsPage(c *ui.Context) {
 
 			a.settingsSection(c, "日志与历史")
 			a.settingsField(c, "日志保留", func() {
-				options := []string{trf("%d 天", 7), trf("%d 天", 30), trf("%d 天", 90), trf("%d 天", 180)}
-				choice := a.retentionLabel
-				if !hasString(options, choice) {
-					choice = trf("%d 天", a.settings.RetentionDays)
-				}
-				ui.Select(c, &choice, options).OnChange(func() {
-					a.retentionLabel = choice
-					if n, err := retentionDaysFromLabel(choice); err == nil {
-						a.settings.RetentionDays = n
-						a.saveSettings()
-					}
+				labels := []string{trf("%d 天", 7), trf("%d 天", 30), trf("%d 天", 90), trf("%d 天", 180)}
+				values := []int{7, 30, 90, 180}
+				a.settingsChoice(c, labels, values, a.settings.RetentionDays, func(v int) {
+					a.settings.RetentionDays = v
+					a.saveSettings()
 				})
 			})
 			a.settingsField(c, "单次日志上限", func() {
-				if ui.TextInput(c, &a.logLimitText).Width(80).Changed() {
-					if n, err := strconv.Atoi(strings.TrimSpace(a.logLimitText)); err == nil && n > 0 {
-						a.settings.MaxLogBytes = int64(n) << 20
-						a.runner.logLimit = a.settings.MaxLogBytes
-						a.saveSettings()
-					}
-				}
-				ui.Text(c, tr("MB，超出后截断")).FontSize(12).TextColor(t.TextMuted)
+				labels := []string{"5 MB", "10 MB", "20 MB", "50 MB", "100 MB"}
+				values := []int{5, 10, 20, 50, 100}
+				a.settingsChoice(c, labels, values, int(a.settings.MaxLogBytes>>20), func(v int) {
+					a.settings.MaxLogBytes = int64(v) << 20
+					a.runner.logLimit = a.settings.MaxLogBytes
+					a.saveSettings()
+				})
 			})
 			a.settingsField(c, "保存脚本内容修订", func() {
 				ui.Switch(c, &a.keepRev).OnChange(func() {
@@ -120,10 +103,9 @@ func (a *App) settingsPage(c *ui.Context) {
 					}
 					a.saveSettings()
 				})
-				ui.Text(c, tr("每次运行前记录内容快照")).FontSize(12).TextColor(t.TextMuted)
 			})
-			a.settingsField(c, "清理旧记录", func() {
-				if ui.Button(c, tr("清理超过保留期的日志")).Padding(2, 10).Clicked() {
+			a.settingsField(c, "清理旧日志", func() {
+				if ui.Button(c, tr("立即清理")).Padding(2, 10).Clicked() {
 					if err := a.store.PruneRuns(a.settings.RetentionDays); err != nil {
 						a.alertError("清理失败", err.Error())
 						return
@@ -133,22 +115,17 @@ func (a *App) settingsPage(c *ui.Context) {
 			})
 
 			a.settingsSection(c, "同步")
-			a.settingsFieldHint(c, "快照保留", "每次同步后自动删除更早的快照，删除标签不会删除提交", func() {
-				label := snapshotKeepLabel(a.settings.SnapshotKeep)
-				if ui.Select(c, &label, snapshotKeepLabels).Changed() {
-					a.settings.SnapshotKeep = snapshotKeepValue(label)
+			a.settingsField(c, "快照保留", func() {
+				labels := []string{trf("最近 %d 份", 10), trf("最近 %d 份", 30), trf("最近 %d 份", 90), tr("不限")}
+				values := []int{10, 30, 90, -1}
+				a.settingsChoice(c, labels, values, a.settings.SnapshotKeep, func(v int) {
+					a.settings.SnapshotKeep = v
 					a.saveSettings()
-				}
+				})
 			})
 
 			a.settingsSection(c, "网络")
-			a.settingsFieldHint(c, "网络代理", "脚本运行时使用这个代理，Git 拉取与推送也使用它", func() {
-				input := ui.TextInput(c, &a.settings.ProxyURL).Width(240)
-				input.Placeholder(defaultProxyURL)
-				if input.Changed() {
-					a.applyProxySettings()
-					a.saveSettings()
-				}
+			a.settingsField(c, "网络代理", func() {
 				ui.Switch(c, &a.settings.ProxyEnabled).OnChange(func() {
 					if a.settings.ProxyEnabled && strings.TrimSpace(a.settings.ProxyURL) == "" {
 						a.settings.ProxyURL = defaultProxyURL
@@ -156,6 +133,12 @@ func (a *App) settingsPage(c *ui.Context) {
 					a.applyProxySettings()
 					a.saveSettings()
 				})
+				input := ui.TextInput(c, &a.settings.ProxyURL).Width(240)
+				input.Placeholder(defaultProxyURL)
+				if input.Changed() {
+					a.applyProxySettings()
+					a.saveSettings()
+				}
 			})
 			if a.proxyErr != "" {
 				ui.Text(c, a.proxyErr).FontSize(12).TextColor(t.Danger)
@@ -167,18 +150,16 @@ func (a *App) settingsPage(c *ui.Context) {
 					a.settings.UpdateRepo = strings.TrimSpace(a.updateRepoText)
 					a.saveSettings()
 				}
-				ui.Text(c, tr("从 GitHub Release 检查新版本")).FontSize(12).TextColor(t.TextMuted)
 			})
 			a.settingsField(c, "启动时检查更新", func() {
 				ui.Switch(c, &a.settings.CheckUpdates).OnChange(func() { a.saveSettings() })
 			})
-			a.settingsField(c, "检查更新", func() {
+			a.settingsField(c, "版本", func() {
+				ui.Text(c, appVersion).FontSize(12).TextColor(t.TextMuted)
 				if ui.Button(c, tr("立即检查")).Padding(2, 10).Clicked() {
 					a.checkForUpdates(true)
 				}
-				ui.Text(c, tr("当前版本 ")+appVersion).FontSize(12).TextColor(t.TextMuted)
 			})
-
 			a.settingsSection(c, "权限")
 			a.settingsField(c, "通知", func() {
 				status, color := a.notifyStatus(t)
@@ -252,30 +233,61 @@ func (a *App) settingsPage(c *ui.Context) {
 	})
 }
 
-var snapshotKeepLabels = []string{"最近 10 份", "最近 30 份", "最近 90 份", "不限"}
-
-func snapshotKeepLabel(keep int) string {
-	switch keep {
-	case 10:
-		return snapshotKeepLabels[0]
-	case 90:
-		return snapshotKeepLabels[2]
-	case -1:
-		return snapshotKeepLabels[3]
+// settingsChoice draws a select over labels and the values they stand for. A
+// value outside the list is added, so the row always shows the real setting.
+func (a *App) settingsChoice(c *ui.Context, labels []string, values []int, current int, set func(int)) {
+	idx := -1
+	for i, v := range values {
+		if v == current {
+			idx = i
+		}
 	}
-	return snapshotKeepLabels[1]
+	if idx < 0 {
+		labels = append([]string{fmt.Sprint(current)}, labels...)
+		values = append([]int{current}, values...)
+		idx = 0
+	}
+	choice := labels[idx]
+	ui.Select(c, &choice, labels).OnChange(func() {
+		for i, label := range labels {
+			if label == choice {
+				set(values[i])
+			}
+		}
+	})
 }
 
-func snapshotKeepValue(label string) int {
-	switch label {
-	case snapshotKeepLabels[0]:
-		return 10
-	case snapshotKeepLabels[2]:
-		return 90
-	case snapshotKeepLabels[3]:
-		return -1
+// timeoutOptions are the default-timeout choices and the seconds each stands
+// for; "不限制" is the 0 the setting stores.
+func timeoutOptions() ([]string, []int) {
+	labels := []string{tr("不限制")}
+	values := []int{0}
+	for _, sec := range []int{30, 60, 120, 300, 600, 1800, 3600} {
+		labels = append(labels, durationLabel(sec))
+		values = append(values, sec)
 	}
-	return 30
+	return labels, values
+}
+
+func durationLabel(sec int) string {
+	switch {
+	case sec >= 3600 && sec%3600 == 0:
+		return trf("%d 小时", sec/3600)
+	case sec >= 60 && sec%60 == 0:
+		return trf("%d 分钟", sec/60)
+	}
+	return trf("%d 秒", sec)
+}
+
+// concurrencyOptions are the concurrency choices; 0 is "自动".
+func concurrencyOptions() ([]string, []int) {
+	labels := []string{tr("自动")}
+	values := []int{0}
+	for _, n := range []int{1, 2, 3, 4, 6, 8, 12, 16} {
+		labels = append(labels, fmt.Sprint(n))
+		values = append(values, n)
+	}
+	return labels, values
 }
 
 func (a *App) settingsSection(c *ui.Context, title string) {
@@ -296,16 +308,6 @@ func (a *App) settingsField(c *ui.Context, label string, control func()) {
 
 // settingsFieldHint is the same row with a small info icon after the label; the
 // explanation lives in its tooltip.
-func (a *App) settingsFieldHint(c *ui.Context, label, hint string, control func()) {
-	t := c.Theme()
-	ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
-		ui.Row(c).Width(170).Shrink(0).Gap(6).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, tr(label)).FontSize(12).TextColor(t.TextMuted).Wrap()
-			ui.Icon(c, lucide.Info()).Width(12).Height(12).TextColor(t.TextMuted).Tooltip(hint)
-		})
-		ui.Row(c).Grow(1).Gap(8).AlignItems(ui.Center).Children(control)
-	})
-}
 
 func (a *App) notifyStatus(t *ui.Theme) (string, ui.Color) {
 	if !a.notifySupported {
@@ -444,15 +446,4 @@ func (a *App) changeLibrary() {
 	a.revFiles = nil
 	a.router.Replace("/scripts")
 	a.showNotice("脚本库已切换")
-}
-
-// retentionDaysFromLabel reads the number out of a retention option, which is
-// the day count followed by the unit as the language writes it.
-func retentionDaysFromLabel(label string) (int, error) {
-	for i := len(label); i > 0; i-- {
-		if n, err := strconv.Atoi(strings.TrimSpace(label[:i])); err == nil {
-			return n, nil
-		}
-	}
-	return 0, fmt.Errorf("无法识别的保留期: %s", label)
 }

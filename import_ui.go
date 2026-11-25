@@ -166,7 +166,11 @@ func (a *App) runImport(isDir bool, src, folderID, name string) error {
 // startImport copies in the background, showing progress and allowing cancel.
 func (a *App) startImport(isDir bool, src, folderID, name string) {
 	if !a.importRunning.CompareAndSwap(false, true) {
-		a.alertError("暂时无法导入", "已有导入在进行，等它结束或取消后再试。")
+		// Several paths dropped at once line up here and run one after the
+		// other, so a multi-file drop needs no separate flow.
+		a.queueMu.Lock()
+		a.importQueue = append(a.importQueue, importJob{isDir: isDir, src: src, folderID: folderID, name: name})
+		a.queueMu.Unlock()
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -194,6 +198,7 @@ func (a *App) startImport(isDir bool, src, folderID, name string) {
 			sc, err = a.store.ImportFileContext(ctx, src, folderID, name, "", progress)
 		}
 		a.importRunning.Store(false)
+		a.runNextImport()
 		result := &pendingImportResult{script: sc}
 		if err != nil {
 			if ctx.Err() != nil {
@@ -223,9 +228,11 @@ func (a *App) cancelImport() {
 }
 
 // importBar shows the copy progress above the content.
+// importBar is the copy progress strip at the bottom of the main pane.
 func (a *App) importBar(c *ui.Context, status string) {
 	t := c.Theme()
-	ui.Row(c).Height(34).PaddingX(16).Gap(10).AlignItems(ui.Center).Background(t.Surface).Children(func() {
+	ui.Row(c).Absolute().Left(a.sidebarW).Right(0).Bottom(0).
+		Height(34).PaddingX(16).Gap(10).AlignItems(ui.Center).Background(t.Surface).Children(func() {
 		ui.Spinner(c).Width(13).Height(13)
 		ui.Text(c, status).FontSize(12).TextColor(t.Text).Grow(1).SingleLine()
 		if ui.Button(c, tr("取消")).Padding(1, 8).Clicked() {
@@ -284,4 +291,25 @@ func (a *App) bindImportedInterpreter(sc Script) (Script, string) {
 		}
 	}
 	return sc, "还没有 " + languageName(fresh.Language) + " 的解释器，先到解释器页添加"
+}
+
+// importJob is one dropped path waiting for the copy in progress.
+type importJob struct {
+	isDir    bool
+	src      string
+	folderID string
+	name     string
+}
+
+// runNextImport starts the next path a drop queued.
+func (a *App) runNextImport() {
+	a.queueMu.Lock()
+	if len(a.importQueue) == 0 {
+		a.queueMu.Unlock()
+		return
+	}
+	job := a.importQueue[0]
+	a.importQueue = a.importQueue[1:]
+	a.queueMu.Unlock()
+	a.startImport(job.isDir, job.src, job.folderID, job.name)
 }

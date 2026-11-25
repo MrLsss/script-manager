@@ -1395,6 +1395,94 @@ func (s *Store) RenameScript(id, name string, renameEntry ...bool) error {
 	return errors.New("脚本不存在")
 }
 
+// siblingPositionLocked is the position a new item takes at the end of a
+// folder: after every script and folder it already holds.
+func (s *Store) siblingPositionLocked(folderID string) int {
+	n := 0
+	for _, sc := range s.lib.Scripts {
+		if sc.FolderID == folderID {
+			n++
+		}
+	}
+	for _, f := range s.lib.Folders {
+		if f.ParentID == folderID {
+			n++
+		}
+	}
+	return n
+}
+
+// MoveScript puts a script in another folder, "" for the root. A name already
+// taken there gets a suffix, as an import of the same name does.
+func (s *Store) MoveScript(id, folderID string) (Script, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var sc *Script
+	for _, candidate := range s.lib.Scripts {
+		if candidate.ID == id {
+			sc = candidate
+			break
+		}
+	}
+	if sc == nil {
+		return Script{}, errors.New("脚本不存在")
+	}
+	if sc.FolderID == folderID {
+		return *sc, nil
+	}
+	if folderID != "" {
+		if _, ok := s.folderByIDLocked(folderID); !ok {
+			return Script{}, errors.New("文件夹不存在")
+		}
+	}
+	sc.Name = s.uniqueScriptNameLocked(folderID, sc.Name)
+	sc.FolderID = folderID
+	sc.Position = s.siblingPositionLocked(folderID)
+	sc.UpdatedAt = time.Now()
+	return *sc, s.saveLocked()
+}
+
+// MoveFolder puts a folder under another one, "" for the root. A folder cannot
+// move into itself or into one of its own descendants, which would cut the
+// subtree out of the tree.
+func (s *Store) MoveFolder(id, parentID string) (Folder, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, ok := s.folderByIDLocked(id)
+	if !ok {
+		return Folder{}, errors.New("文件夹不存在")
+	}
+	if f.ParentID == parentID {
+		return *f, nil
+	}
+	for _, d := range s.descendantFoldersLocked(id) {
+		if d == parentID {
+			return Folder{}, errors.New("不能把文件夹移到它自己或它的子文件夹里")
+		}
+	}
+	if parentID != "" {
+		if _, ok := s.folderByIDLocked(parentID); !ok {
+			return Folder{}, errors.New("文件夹不存在")
+		}
+	}
+	// A sibling of the same name would make two rows look alike; the moved
+	// one takes a suffix, as an import does.
+	name := f.Name
+	if s.folderNameTaken(parentID, name, id) || s.scriptNameTaken(parentID, name, "") {
+		for i := 2; i < 1000; i++ {
+			candidate := fmt.Sprintf("%s (%d)", name, i)
+			if !s.folderNameTaken(parentID, candidate, id) && !s.scriptNameTaken(parentID, candidate, "") {
+				name = candidate
+				break
+			}
+		}
+	}
+	f.Name = name
+	f.ParentID = parentID
+	f.Position = s.siblingPositionLocked(parentID)
+	return *f, s.saveLocked()
+}
+
 // DeleteScript moves a script to the trash.
 func (s *Store) DeleteScript(id string) error {
 	s.mu.Lock()
@@ -1897,6 +1985,48 @@ func (s *Store) Usage(interpID string) int {
 		}
 	}
 	return n
+}
+
+// DeleteRuns removes run records and their logs. A run that is still going is
+// kept: its log file is being written. It reports how many were removed.
+func (s *Store) DeleteRuns(ids []string) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	drop := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		drop[id] = true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	removed := 0
+	keep := make([]*Run, 0, len(s.lib.Runs))
+	for _, r := range s.lib.Runs {
+		if !drop[r.ID] || r.Status == RunRunning {
+			keep = append(keep, r)
+			continue
+		}
+		_ = os.Remove(filepath.Join(s.root, r.LogPath))
+		_ = os.Remove(s.adminStatusPath(r.ScriptID, r.ID))
+		removed++
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	s.lib.Runs = keep
+	return removed, s.saveLocked()
+}
+
+// DeleteRun removes one run record and its log.
+func (s *Store) DeleteRun(id string) error {
+	removed, err := s.DeleteRuns([]string{id})
+	if err != nil {
+		return err
+	}
+	if removed == 0 {
+		return errors.New("这次运行还没有结束，不能删除")
+	}
+	return nil
 }
 
 // PruneRuns drops runs older than days and their logs, 0 keeps every run.
