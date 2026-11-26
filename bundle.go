@@ -56,6 +56,7 @@ type BundleScript struct {
 	Preflight   bool              `json:"preflight,omitempty"`
 	Profiles    []RunProfile      `json:"profiles,omitempty"`
 	ProfileID   string            `json:"profile_id,omitempty"`
+	DefaultName string            `json:"default_name,omitempty"`
 	HostName    string            `json:"host_name,omitempty"`
 	HostTarget  string            `json:"host_target,omitempty"`
 	Hash        string            `json:"hash"`
@@ -200,6 +201,7 @@ func ExportLibrary(store *Store, target string, opts ExportOptions) error {
 			Preflight:  sc.Preflight,
 			Profiles:   sc.Profiles,
 			ProfileID:  sc.ProfileID,
+			DefaultName: sc.DefaultName,
 			HostName:   sc.HostName,
 			HostTarget: sc.HostTarget,
 			Hash:       contentHash(entry),
@@ -401,6 +403,7 @@ func ImportLibrary(store *Store, file string, opts ImportOptions) (ImportResult,
 		updated.Preflight = bs.Preflight
 		updated.Profiles = bs.Profiles
 		updated.ProfileID = bs.ProfileID
+		updated.DefaultName = bs.DefaultName
 		updated.HostName = bs.HostName
 		updated.HostTarget = bs.HostTarget
 		updated.HostID = ""

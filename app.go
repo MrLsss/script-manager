@@ -250,7 +250,6 @@ type formState struct {
 	timeout string
 	lang    string
 
-	interpIdx int
 	folderIdx int
 
 	targetID     string
@@ -456,10 +455,12 @@ func (a *App) header(c *ui.Context) {
 	})
 }
 
+// headerTitle leads with the file that runs, bold and black: the script's
+// own name stays in the sidebar, and a duplicate in the header was noise.
 func (a *App) headerTitle(c *ui.Context, sc Script) {
 	t := c.Theme()
-	ui.Text(c, sc.Name).FontSize(15).FontWeight(600).SingleLine()
-	ui.Text(c, sc.Entry).FontSize(12).TextColor(t.TextMuted).Tooltip(tr("入口文件"))
+	ui.Text(c, sc.Entry).FontSize(15).FontWeight(700).SingleLine().
+		Tooltip(tr("脚本") + "：" + sc.Name)
 	state, color := "已保存", t.Success
 	dirty := 0
 	for _, rel := range a.scriptTabs(sc) {
@@ -490,9 +491,7 @@ func (a *App) headerTitle(c *ui.Context, sc Script) {
 
 func (a *App) headerActions(c *ui.Context, sc Script) {
 	a.interpBadge(c, sc)
-	if ui.Button(c, profileLabel(sc)).Padding(4, 14).Clicked() {
-		a.openRunArgs(sc)
-	}
+	a.profileControl(c, sc)
 	if run, ok := a.runner.Active(sc.ID); ok {
 		label := "停止"
 		if run.Admin {
@@ -649,43 +648,176 @@ func (a *App) rebindHost(sc Script, h RemoteHost) {
 	_ = a.store.UpdateScript(fresh)
 }
 
+// profileControl is the 参数 button. Once several parameter sets exist it
+// opens a menu that switches between them by name; 设置参数 is the one entry
+// that edits the active set. With only the default it opens the dialog
+// straight away.
+func (a *App) profileControl(c *ui.Context, sc Script) {
+	if len(sc.Profiles) == 0 && sc.DefaultName == "" {
+		if ui.Button(c, profileLabel(sc)).Padding(4, 14).Clicked() {
+			a.openRunArgs(sc)
+		}
+		return
+	}
+	ui.PopoverMenuButton(c, profileLabel(sc), func(m *ui.Menu) {
+		if m.Item(sc.defaultProfileName()).Radio(sc.ProfileID == "").Chosen() {
+			a.switchProfile(sc, "")
+		}
+		for _, p := range sc.Profiles {
+			p := p
+			if m.Item(p.Name).Radio(sc.ProfileID == p.ID).Chosen() {
+				a.switchProfile(sc, p.ID)
+			}
+		}
+		m.Separator()
+		if m.Item(tr("设置参数…")).Chosen() {
+			a.openRunArgs(sc)
+		}
+	}).Tooltip(tr("切换运行参数"))
+}
+
+// switchProfile saves the chosen parameter set at once, so the button and
+// the next run always agree.
+func (a *App) switchProfile(sc Script, id string) {
+	if sc.ProfileID == id {
+		return
+	}
+	if _, ok := sc.profileByID(id); !ok && id != "" {
+		return
+	}
+	fresh, ok := a.store.Script(sc.ID)
+	if !ok {
+		return
+	}
+	fresh.ProfileID = id
+	if err := a.store.UpdateScript(fresh); err != nil {
+		a.alertError("切换失败", err.Error())
+		return
+	}
+	name := fresh.defaultProfileName()
+	if p, ok := fresh.profileByID(id); ok {
+		name = p.Name
+	}
+	a.showNotice(trf("已切换到参数「%s」", name))
+}
+
+// badgeHost is the machine the header shows the interpreter for: a remote
+// host when the script points at one, the local machine otherwise.
+func (a *App) badgeHost(sc Script) (RemoteHost, bool) {
+	if sc.HostID == "" && sc.HostName == "" && sc.HostTarget == "" {
+		return RemoteHost{}, false
+	}
+	if h, ok := a.findHost(sc); ok {
+		return h, true
+	}
+	return RemoteHost{}, false
+}
+
+// interpBadge shows the interpreter the current run target will actually
+// use, and its whole label sits inside the dropdown button. The info icon
+// left of it opens the details popover.
 func (a *App) interpBadge(c *ui.Context, sc Script) {
 	t := c.Theme()
-	it, ok := a.store.Interpreter(sc.InterpID)
-	label := "未配置解释器"
+	host, isRemote := a.badgeHost(sc)
+	label := tr("未配置解释器")
 	color := t.Danger
-	if ok {
+	if isRemote {
+		if ri, ok := a.remotes.Interpreter(host, sc.Language); ok {
+			label = ri.Name + " " + ri.Version
+			color = t.TextMuted
+		} else {
+			label = tr("未检测远程解释器")
+		}
+	} else if it, ok := a.resolvedLocalInterpreter(sc); ok {
 		label = it.Name + " " + it.Version
 		color = t.TextMuted
-		if it.State != StateOK {
-			color = t.Danger
-		}
 	}
 	info := ui.ButtonBase(c).Padding(3).Radius(6).Tooltip(tr("解释器信息")).
 		OnClick(func() { a.interpOpen = !a.interpOpen })
 	info.Children(func() {
 		ui.Icon(c, lucide.Info()).Width(15).Height(15).TextColor(color)
 	})
-	ui.Text(c, label).FontSize(12).TextColor(t.Text).SingleLine()
-	ui.PopoverMenuButton(c, "", func(m *ui.Menu) {
-		opts, ids := a.interpreterOptions(sc.Language)
-		if len(opts) == 0 {
-			m.Item(tr("没有可用于") + languageName(sc.Language) + "的解释器").Disabled(true)
+	ui.PopoverMenuButton(c, label, func(m *ui.Menu) {
+		if isRemote {
+			a.remoteInterpMenu(m, sc, host)
 			return
 		}
-		for i, opt := range opts {
-			if m.Item(opt).Radio(ids[i] == sc.InterpID).Chosen() {
-				a.switchInterpreter(sc, ids[i])
-			}
-		}
-		m.Separator()
-		if m.Item(tr("脚本设置…")).Chosen() {
-			a.openScriptOptions(sc)
-		}
+		a.localInterpMenu(m, sc)
 	}).Tooltip(tr("切换解释器"))
 	ui.Popover(c, info, &a.interpOpen, func() {
-		a.interpPopover(c, sc)
+		a.interpPopover(c, sc, isRemote, host)
 	})
+}
+
+// localInterpMenu offers the local interpreters that can run the language,
+// marking the one a run would actually use.
+func (a *App) localInterpMenu(m *ui.Menu, sc Script) {
+	cur, _ := a.resolvedLocalInterpreter(sc)
+	opts, ids := a.interpreterOptions(sc.Language)
+	if len(opts) == 0 {
+		m.Item(tr("没有可用于") + languageName(sc.Language) + "的解释器").Disabled(true)
+		return
+	}
+	for i, opt := range opts {
+		if m.Item(opt).Radio(ids[i] == cur.ID).Chosen() {
+			a.switchInterpreter(sc, ids[i])
+		}
+	}
+	m.Separator()
+	if m.Item(tr("脚本设置…")).Chosen() {
+		a.openScriptOptions(sc)
+	}
+}
+
+// remoteInterpMenu offers the interpreters detected on the host for the
+// script's language, remembering the choice as the host's default.
+func (a *App) remoteInterpMenu(m *ui.Menu, sc Script, host RemoteHost) {
+	cur := ""
+	if ri, ok := a.remotes.Interpreter(host, sc.Language); ok {
+		cur = ri.Path
+	}
+	var usable []RemoteInterp
+	for _, it := range a.remotes.Interpreters(host.ID) {
+		if it.Language == sc.Language && it.State == RemoteStateOK {
+			usable = append(usable, it)
+		}
+	}
+	if len(usable) == 0 {
+		m.Item(tr("还没有检测到") + languageName(sc.Language) + "解释器").Disabled(true)
+	} else {
+		for _, it := range usable {
+			it := it
+			if m.Item(it.Name + " " + it.Version).Radio(it.Path == cur).Chosen() {
+				if err := a.remotes.SetPreferred(host.ID, sc.Language, it.Path); err != nil {
+					a.alertError("保存失败", err.Error())
+					return
+				}
+				a.showNotice("已切换到 " + it.Name + " " + it.Version)
+			}
+		}
+	}
+	m.Separator()
+	if m.Item(tr("检测远程解释器…")).Chosen() {
+		a.detectHostInterpreters(host)
+	}
+	if m.Item(tr("管理连接…")).Chosen() {
+		a.router.Push("/connections")
+	}
+}
+
+// resolvedLocalInterpreter is the interpreter a local run of this script
+// would use: the configured one when it is usable, otherwise the first
+// usable one for the language. A script created without an interpreter
+// still shows and runs with a sensible default instead of refusing.
+func (a *App) resolvedLocalInterpreter(sc Script) (Interpreter, bool) {
+	if it, ok := a.store.Interpreter(sc.InterpID); ok && it.State == StateOK {
+		return it, true
+	}
+	list := a.interpretersFor(sc.Language)
+	if len(list) > 0 {
+		return list[0], true
+	}
+	return Interpreter{}, false
 }
 
 func (a *App) clearRevisions(sc Script) {
@@ -728,21 +860,34 @@ func (a *App) switchInterpreter(sc Script, id string) {
 	}
 }
 
-func (a *App) interpPopover(c *ui.Context, sc Script) {
+func (a *App) interpPopover(c *ui.Context, sc Script, isRemote bool, host RemoteHost) {
 	t := c.Theme()
-	it, ok := a.store.Interpreter(sc.InterpID)
 	ui.Column(c).Width(320).Padding(14).Gap(8).Children(func() {
 		ui.Text(c, tr("解释器")).FontSize(12).FontWeight(600)
+		if isRemote {
+			ri, ok := a.remotes.Interpreter(host, sc.Language)
+			if !ok {
+				ui.Text(c, tr("还没有在这台服务器上检测解释器。")).FontSize(12).TextColor(t.TextMuted)
+				return
+			}
+			a.metaLine(c, "名称", ri.Name+" "+ri.Version)
+			a.metaLine(c, "路径", ri.Path)
+			a.metaLine(c, "状态", remoteStateText(ri.State))
+			a.metaLine(c, "上次检测", fmtTime(ri.CheckedAt))
+			a.metaLine(c, "运行目标", host.Name)
+			return
+		}
+		it, ok := a.resolvedLocalInterpreter(sc)
 		if !ok {
 			ui.Text(c, tr("这个脚本还没有配置解释器。")).FontSize(12).TextColor(t.TextMuted)
-		} else {
-			a.metaLine(c, "名称", it.Name+" "+it.Version)
-			a.metaLine(c, "路径", it.Path)
-			a.metaLine(c, "参数", strings.Join(it.Args, " "))
-			a.metaLine(c, "探针", strings.Join(it.ProbeArgs, " "))
-			a.metaLine(c, "上次校验", it.CheckedAt.Format("2006-01-02 15:04"))
-			a.metaLine(c, "引用脚本", trf("%d 个", a.store.Usage(it.ID)))
+			return
 		}
+		a.metaLine(c, "名称", it.Name+" "+it.Version)
+		a.metaLine(c, "路径", it.Path)
+		a.metaLine(c, "参数", strings.Join(it.Args, " "))
+		a.metaLine(c, "探针", strings.Join(it.ProbeArgs, " "))
+		a.metaLine(c, "上次校验", it.CheckedAt.Format("2006-01-02 15:04"))
+		a.metaLine(c, "引用脚本", trf("%d 个", a.store.Usage(it.ID)))
 	})
 }
 
@@ -1137,7 +1282,7 @@ func (a *App) welcomePage(c *ui.Context) {
 	ui.Column(c).Grow(1).AlignItems(ui.Center).Justify(ui.Center).Gap(14).Children(func() {
 		ui.Icon(c, lucide.SquareTerminal()).Width(44).Height(44).TextColor(t.TextMuted)
 		ui.Text(c, tr("脚本库是空的")).FontSize(18).FontWeight(600)
-		ui.Text(c, tr("先检测本机已有的解释器，再新建一个脚本。")).FontSize(12).TextColor(t.TextMuted)
+		ui.Text(c, tr("可以先新建脚本，解释器在运行时按目标自动选择；也可以先检测本机解释器。")).FontSize(12).TextColor(t.TextMuted)
 		ui.Row(c).Gap(10).Children(func() {
 			if ui.PrimaryButton(c, tr("新建脚本")).Clicked() {
 				a.openNewScript("")
@@ -1365,14 +1510,22 @@ func (a *App) startScriptRun(sc Script) {
 		return
 	}
 	defer release()
-	it, ok := a.store.Interpreter(sc.InterpID)
+	if sc.InterpID != "" {
+		if configured, ok := a.store.Interpreter(sc.InterpID); ok && configured.State != StateOK {
+			a.alertError("无法运行", "解释器「"+configured.Name+"」当前不可用："+stateText(configured.State))
+			return
+		}
+	}
+	it, ok := a.resolvedLocalInterpreter(sc)
 	if !ok {
-		a.alertError("无法运行", "这个脚本还没有配置解释器。")
+		a.alertError("无法运行", "本机还没有可用的 "+languageName(sc.Language)+" 解释器，先到解释器页检测本机解释器。")
 		return
 	}
-	if it.State != StateOK {
-		a.alertError("无法运行", "解释器「"+it.Name+"」当前不可用："+stateText(it.State))
-		return
+	if sc.InterpID == "" {
+		// Remember the interpreter this run used, so the header always agrees
+		// with what actually ran.
+		sc.InterpID = it.ID
+		_ = a.store.UpdateScript(sc)
 	}
 	if sc.Preflight {
 		if err := a.preflightLocal(sc, it); err != nil {

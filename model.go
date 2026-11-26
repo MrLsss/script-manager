@@ -52,6 +52,9 @@ type Script struct {
 	Preflight  bool              `json:"preflight,omitempty"`
 	Profiles   []RunProfile      `json:"profiles,omitempty"`
 	ProfileID  string            `json:"profile_id,omitempty"`
+	// DefaultName is what the unnamed default parameter set is called.
+	// Empty means it still shows as 默认.
+	DefaultName string            `json:"default_name,omitempty"`
 	HostID     string            `json:"host_id,omitempty"`
 	HostName   string            `json:"host_name,omitempty"`
 	HostTarget string            `json:"host_target,omitempty"`

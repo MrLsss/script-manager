@@ -1338,6 +1338,7 @@ func (s *Store) UpdateScript(updated Script) error {
 		sc.Preflight = updated.Preflight
 		sc.Profiles = updated.Profiles
 		sc.ProfileID = updated.ProfileID
+		sc.DefaultName = updated.DefaultName
 		sc.HostID = updated.HostID
 		sc.HostName = updated.HostName
 		sc.HostTarget = updated.HostTarget

@@ -47,10 +47,23 @@ func applyRunProfile(sc Script) Script {
 	return sc
 }
 
-// profileLabel is what the header button shows.
+// defaultProfileName is what the unnamed set on the script itself is
+// called: a name the user gave it, or 默认 before that.
+func (sc Script) defaultProfileName() string {
+	if sc.DefaultName != "" {
+		return sc.DefaultName
+	}
+	return tr("默认")
+}
+
+// profileLabel is what the header button shows: 参数 plus the name of the set
+// the next run uses, once anything has been named.
 func profileLabel(sc Script) string {
 	if p, ok := sc.activeProfile(); ok {
 		return tr("参数") + " · " + p.Name
+	}
+	if sc.DefaultName != "" {
+		return tr("参数") + " · " + sc.DefaultName
 	}
 	return tr("参数")
 }

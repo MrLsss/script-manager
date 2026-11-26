@@ -78,11 +78,7 @@ func (a *App) formModal(c *ui.Context) {
 }
 
 func (a *App) newScriptForm(c *ui.Context) {
-	langs := a.scriptLanguages()
-	if len(langs) == 0 {
-		ui.Text(c, tr("还没有可用的解释器，先到解释器页检测本机解释器。")).FontSize(12).TextColor(c.Theme().Danger)
-		return
-	}
+	langs := languageOrder
 	if !hasString(langs, a.form.lang) {
 		a.form.lang = langs[0]
 	}
@@ -99,51 +95,6 @@ func (a *App) newScriptForm(c *ui.Context) {
 			for _, l := range langs {
 				if languageName(l) == choice {
 					a.form.lang = l
-					a.form.interpIdx = 0
-				}
-			}
-		})
-	})
-	interps := a.interpretersFor(a.form.lang)
-	a.formField(c, "解释器", func() {
-		if len(interps) == 0 {
-			ui.Text(c, tr("这个语言没有可用的解释器")).FontSize(12).TextColor(c.Theme().Danger)
-			return
-		}
-		if a.form.interpIdx >= len(interps) {
-			a.form.interpIdx = 0
-		}
-		labels := make([]string, len(interps))
-		for i, it := range interps {
-			labels[i] = interpLabel(it)
-		}
-		choice := labels[a.form.interpIdx]
-		ui.Select(c, &choice, labels).OnChange(func() {
-			for i, it := range interps {
-				if interpLabel(it) == choice {
-					a.form.interpIdx = i
-				}
-			}
-		})
-	})
-	folders := a.folderChoices()
-	a.formField(c, "位置", func() {
-		if a.form.folderIdx >= len(folders) {
-			a.form.folderIdx = 0
-		}
-		labels := make([]string, len(folders))
-		for i, f := range folders {
-			if f.ID == "" {
-				labels[i] = "脚本库根目录"
-			} else {
-				labels[i] = a.folderPath(f.ID)
-			}
-		}
-		choice := labels[a.form.folderIdx]
-		ui.Select(c, &choice, labels).OnChange(func() {
-			for i, label := range labels {
-				if label == choice {
-					a.form.folderIdx = i
 				}
 			}
 		})
@@ -293,7 +244,7 @@ func (a *App) runArgsForm(c *ui.Context) {
 	if !ok {
 		return
 	}
-	labels := []string{"默认"}
+	labels := []string{sc.defaultProfileName()}
 	ids := []string{""}
 	for _, p := range sc.Profiles {
 		labels = append(labels, p.Name)
@@ -325,7 +276,7 @@ func (a *App) runArgsForm(c *ui.Context) {
 		}
 	})
 	a.formField(c, "名称", func() {
-		ui.TextInput(c, &a.form.profileName).Grow(1).Disabled(a.form.profileID == "")
+		ui.TextInput(c, &a.form.profileName).Grow(1)
 	})
 	a.formField(c, "参数", func() {
 		ui.TextInput(c, &a.form.args).Placeholder(tr("附加参数，空格分隔；支持引号")).Grow(1)
@@ -356,7 +307,7 @@ func (a *App) runArgsForm(c *ui.Context) {
 // fillRunProfileForm loads the selected profile (or the default fields) into
 // the editor.
 func (a *App) fillRunProfileForm(sc Script) {
-	a.form.profileName = "默认"
+	a.form.profileName = sc.defaultProfileName()
 	args := sc.Args
 	env := sc.Env
 	cwd := sc.Cwd
@@ -402,10 +353,10 @@ func (a *App) profileFromForm(name string) (RunProfile, error) {
 // saveRunProfileCopy stores the current fields as a new named profile.
 func (a *App) saveRunProfileCopy(sc Script) {
 	name := strings.TrimSpace(a.form.profileName)
-	if name == "" || name == "默认" {
+	if name == "" || (name == tr("默认") && sc.DefaultName == "") {
 		name = nextProfileName(sc.Profiles)
 	}
-	if profileNameTaken(sc.Profiles, name, a.form.profileID) {
+	if name == sc.defaultProfileName() || profileNameTaken(sc.Profiles, name, a.form.profileID) {
 		a.form.err = "已经有同名的配置"
 		return
 	}
@@ -503,24 +454,13 @@ func (a *App) submitForm() {
 func (a *App) createScript() {
 	name := strings.TrimSpace(a.form.name)
 	lang := a.form.lang
-	if !hasString(a.scriptLanguages(), lang) {
+	if !hasString(languageOrder, lang) {
 		a.form.err = "请选择语言"
 		return
 	}
-	interps := a.interpretersFor(lang)
-	if len(interps) == 0 {
-		a.form.err = "这个语言没有可用的解释器"
-		return
-	}
-	if a.form.interpIdx >= len(interps) {
-		a.form.interpIdx = 0
-	}
-	folders := a.folderChoices()
-	folderID := ""
-	if a.form.folderIdx > 0 && a.form.folderIdx < len(folders) {
-		folderID = folders[a.form.folderIdx].ID
-	}
-	sc, err := a.store.CreateScript(folderID, name, lang, languageExt(lang), interps[a.form.interpIdx].ID)
+	// The interpreter is not chosen here: it depends on where the script
+	// runs, and it follows the run target when the script is started.
+	sc, err := a.store.CreateScript(a.form.folderID, name, lang, languageExt(lang), "")
 	if err != nil {
 		a.form.err = err.Error()
 		return
@@ -531,7 +471,7 @@ func (a *App) createScript() {
 			return
 		}
 	}
-	a.folderOpen[folderID] = true
+	a.folderOpen[a.form.folderID] = true
 	a.selected = sc.ID
 	a.form.open = false
 	a.router.Push("/scripts/" + sc.ID)
@@ -616,6 +556,8 @@ func (a *App) saveRunArgs() {
 		sc.Timeout = profile.Timeout
 		sc.RunAsAdmin = profile.RunAsAdmin
 		sc.ProfileID = ""
+		// The default set takes a name like any other; empty falls back to 默认.
+		sc.DefaultName = strings.TrimSpace(a.form.profileName)
 	} else {
 		name := strings.TrimSpace(a.form.profileName)
 		if name == "" {
@@ -749,14 +691,7 @@ func (a *App) saveHost() {
 }
 
 func (a *App) openNewScript(folderID string) {
-	folders := a.folderChoices()
-	idx := 0
-	for i, f := range folders {
-		if f.ID == folderID {
-			idx = i
-		}
-	}
-	a.form = formState{kind: dialogScript, open: true, title: "新建脚本", folderIdx: idx, folderID: folderID}
+	a.form = formState{kind: dialogScript, open: true, title: "新建脚本", folderID: folderID}
 	a.requestUpdate()
 }
 
@@ -840,16 +775,6 @@ func (a *App) folderPath(id string) string {
 	return strings.Join(parts, " / ")
 }
 
-func (a *App) scriptLanguages() []string {
-	var out []string
-	for _, l := range languageOrder {
-		if len(a.interpretersFor(l)) > 0 {
-			out = append(out, l)
-		}
-	}
-	return out
-}
-
 func (a *App) interpretersFor(language string) []Interpreter {
 	var out []Interpreter
 	for _, it := range a.store.Interpreters() {
@@ -915,10 +840,6 @@ func splitArgs(s string) []string {
 	}
 	flush()
 	return out
-}
-
-func interpLabel(it Interpreter) string {
-	return it.Name + " " + it.Version
 }
 
 func hasString(list []string, value string) bool {
