@@ -31,7 +31,7 @@
 | Windows x64 / ARM64 | `script-manager-setup-<版本>-<arch>.exe` |
 | Linux x64 / ARM64 | `script-manager_<版本>_<arch>.deb`、`script-manager-<版本>-linux-<arch>.tar.gz` |
 
-每个 Release 都带一份 `checksums.txt`，下载后可以先核对。
+每个 Release 都带一份 `SHA256SUMS`，下载后可以先核对。
 
 第一次打开：
 
@@ -148,8 +148,11 @@
 ### 多语言与更新
 
 - 界面支持跟随系统、简体中文、English；导航、页头、设置、对话框、托盘菜单、运行状态和常见错误都会跟着切
-- 设置 → 更新里填 GitHub 仓库 `owner/repo`，可启动时检查或手动检查，发现新版本可下载当前系统的安装包或打开 Release 页面
-- 下载完可以打开安装包或所在文件夹，不会静默替换正在运行的程序
+- 自动更新基于 GitHub Releases：构建时用 Ed25519 私钥给更新包和清单签名，App 内置公钥，下载后先校验再安装；有增量包时只下载变化的部分
+- 启动后后台检查，菜单和设置页也可以手动检查；更新窗口支持稍后提醒、跳过此版本、自动下载，安装后自动重启
+- 更新地址在构建时固定，不需要用户填写仓库；检查走系统代理，且只接受 HTTPS
+- macOS 需要 App 位于 `/Applications` 且可写；Windows 的 per-user 安装可直接更新；Linux 的 deb/rpm 由包管理器更新，`tar.gz` + `install.sh` 安装的版本支持自动更新
+- 0.3.0 是第一个带自动更新的版本，更早的版本需要手动安装一次
 
 ## 数据放在哪
 
@@ -175,7 +178,7 @@
 
 只属于本机、写在 `.gitignore` 的：`local.json`、`logs/`、`revisions/`、`conflicts/`、`.trash/`、`*.tmp`、`.DS_Store`。
 
-偏好设置：macOS 在 `~/Library/Application Support/script-manager/`，Windows 在 `%AppData%\script-manager`，Linux 在 `~/.config/script-manager/`。远程连接存在偏好目录的 `remote.json`，不进脚本库，也不会被 Git 或导出包带走。
+偏好设置：macOS 在 `~/Library/Application Support/script-manager/`，Windows 在 `%AppData%\script-manager`，Linux 在 `~/.config/script-manager/`。远程连接存在偏好目录的 `remote.json`，更新窗口的选项存在 `updater.json`，都不进脚本库，也不会被 Git 或导出包带走。
 
 环境变量：`SCRIPT_MANAGER_HOME` 改偏好目录，`SCRIPT_MANAGER_LIB` 改脚本库根目录。旧版 `library.json` 第一次打开时自动拆分，原文件改名为 `library.json.migrated`。
 
@@ -205,9 +208,18 @@ go tool mygo build -skip-dmg -skip-installer \
   -platform darwin/arm64,darwin/amd64,windows/amd64,linux/amd64
 ```
 
-产物在 `dist/`：macOS 是 `dist/darwin-<arch>/script-manager.app`（含 dmg），Windows 是 `dist/windows-amd64/script-manager.exe`，Linux 是 `dist/linux-amd64/` 下的可执行文件、`.deb` 和 `.tar.gz`；不带 `-skip-installer` 时还会额外生成 `.rpm` 与 `PKGBUILD`。应用配置在 `mygo.json`，图标 `resources/icon.png` 由 `go run tools/icon.go` 生成。
+产物在 `dist/`：macOS 是 `dist/darwin-<arch>/script-manager.app`（含 dmg），Windows 是 `dist/windows-amd64/script-manager.exe`，Linux 是 `dist/linux-amd64/` 下的可执行文件、`.deb` 和 `.tar.gz`；不带 `-skip-installer` 时还会额外生成 `.rpm` 与 `PKGBUILD`。设置 `MYGO_UPDATER_PRIVATE_KEY` 后还会生成签名的更新包、增量包和 `update-<平台>.json` 清单；本地不设置时照常构建，只是不生成更新文件。应用配置在 `mygo.json`，图标 `resources/icon.png` 由 `go run tools/icon.go` 生成。
 
-推送 `v*` 标签时，`.github/workflows/release.yml` 会构建三端、上传 dmg / setup.exe / deb / tar.gz，生成 `checksums.txt` 并挂到对应的 GitHub Release。
+推送 `v*` 标签时，`.github/workflows/release.yml` 会构建三端，用 `MYGO_UPDATER_PRIVATE_KEY` 签名更新包和清单，再通过 `mygo build -upload` 上传到 draft Release；所有平台的清单齐全后由 publish job 发布。仓库 Secrets 需要配置 `MYGO_UPDATER_PRIVATE_KEY`（`go tool mygo keygen` 生成的私钥），对应公钥写在 `mygo.json` 的 `updates.publicKey`。版本说明取自 `CHANGELOG.md` 中与版本号相同的段落。
+
+首次发布前：
+
+```bash
+go tool mygo keygen   # 生成 mygo-update.key 和 mygo-update.pub
+# 把 mygo-update.key 的内容设为仓库 Secret：MYGO_UPDATER_PRIVATE_KEY
+```
+
+私钥只放密码管理器和 CI Secrets，不要提交；丢失后已安装的版本将无法验证后续更新。
 
 ## 致谢
 

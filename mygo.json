@@ -2,9 +2,15 @@
   "name": "script-manager",
   "slug": "script-manager",
   "identifier": "com.liushuai.scriptmanager",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "main": ".",
   "out": "dist",
   "icon": "resources/icon.png",
-  "resources": []
+  "resources": [],
+  "updates": {
+    "publicKey": "X+66r+S+EyKH28CVDIA2GQ+HSnSnM7W3+h9ufmkcpOE=",
+    "github": "MrLsss/script-manager",
+    "deltas": 3,
+    "changelog": "CHANGELOG.md"
+  }
 }

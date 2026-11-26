@@ -28,8 +28,6 @@ type Settings struct {
 	SnapshotKeep   int    `json:"snapshot_keep"`
 	Concurrency    int    `json:"concurrency"`
 	RedactLogs     bool   `json:"redact_logs"`
-	UpdateRepo     string `json:"update_repo"`
-	CheckUpdates   bool   `json:"check_updates"`
 }
 
 func defaultSettings() Settings {

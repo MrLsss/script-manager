@@ -96,9 +96,8 @@ type App struct {
 	toast      atomic.Pointer[toastState]
 	toastToken atomic.Int64
 
-	updateRepoText string
-	keepRev        bool
-	appearanceIdx  int
+	keepRev       bool
+	appearanceIdx int
 
 	detecting atomic.Bool
 
@@ -314,7 +313,6 @@ func newApp(settings Settings, store *Store) *App {
 	}
 	a.bundle.conflict = string(ConflictCopy)
 	a.applyProxySettings()
-	a.updateRepoText = settings.UpdateRepo
 	a.keepRev = settings.KeepRevisions > 0
 	a.applyLanguage()
 	a.checkLibraryWrite()

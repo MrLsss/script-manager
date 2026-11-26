@@ -3,5 +3,9 @@ dist/
 .DS_Store
 /script-manager
 
+# 更新签名密钥：私钥只放密码管理器和 CI Secrets
+mygo-update.key
+mygo-update.pub
+
 # 测试文件只留在本地，不随仓库分发
 *_test.go

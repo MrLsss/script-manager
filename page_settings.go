@@ -145,19 +145,10 @@ func (a *App) settingsPage(c *ui.Context) {
 			}
 
 			a.settingsSection(c, "更新")
-			a.settingsField(c, "GitHub 仓库", func() {
-				if ui.TextInput(c, &a.updateRepoText).Placeholder("owner/repo").Width(220).Changed() {
-					a.settings.UpdateRepo = strings.TrimSpace(a.updateRepoText)
-					a.saveSettings()
-				}
-			})
-			a.settingsField(c, "启动时检查更新", func() {
-				ui.Switch(c, &a.settings.CheckUpdates).OnChange(func() { a.saveSettings() })
-			})
 			a.settingsField(c, "版本", func() {
-				ui.Text(c, appVersion).FontSize(12).TextColor(t.TextMuted)
-				if ui.Button(c, tr("立即检查")).Padding(2, 10).Clicked() {
-					a.checkForUpdates(true)
+				ui.Text(c, appVersion()).FontSize(12).TextColor(t.TextMuted)
+				if ui.Button(c, tr("检查更新")).Padding(2, 10).Clicked() {
+					checkUpdates()
 				}
 			})
 			a.settingsSection(c, "权限")

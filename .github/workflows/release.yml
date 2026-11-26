@@ -8,6 +8,12 @@ on:
 permissions:
   contents: write
 
+# mygo build signs the update archives and manifests with this key, and
+# uploads them to the draft release with the GitHub CLI.
+env:
+  MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
   macos-linux:
     runs-on: macos-latest
@@ -17,33 +23,19 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - name: Build macOS (DMG) and Linux
+      - name: Check that mygo.json matches the tag
+        run: test "v$(jq -r .version mygo.json)" = "$GITHUB_REF_NAME"
+      - name: Build, sign and upload macOS and Linux
         run: >
           go tool mygo build
           -skip-installer
           -platform darwin/arm64,darwin/amd64,linux/amd64,linux/arm64
-      - name: Collect installers
-        run: |
-          set -e
-          mkdir -p release
-          cp dist/darwin-arm64/*.dmg release/
-          cp dist/darwin-amd64/*.dmg release/
-          cp dist/linux-amd64/*.deb release/
-          cp dist/linux-amd64/*-linux-amd64.tar.gz release/
-          cp dist/linux-arm64/*.deb release/
-          cp dist/linux-arm64/*-linux-arm64.tar.gz release/
-          ls -lh release
-      - name: Checksums
-        run: |
-          cd release
-          shasum -a 256 * > checksums.txt
-          cat checksums.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-linux
-          path: release/*
+          -upload
 
   windows:
+    # The macOS and Linux job creates the draft release first, so that the
+    # two builds do not try to create it at once.
+    needs: macos-linux
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,45 +43,24 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - name: Build Windows installers
-        run: go tool mygo build -platform windows/amd64,windows/arm64
-      - name: Collect installers
-        shell: bash
-        run: |
-          set -e
-          mkdir -p release
-          cp dist/windows-amd64/script-manager-setup-*.exe release/
-          cp dist/windows-arm64/script-manager-setup-*.exe release/
-          ls -lh release
-      - name: Checksums
-        shell: bash
-        run: |
-          cd release
-          sha256sum * > checksums.txt
-          cat checksums.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows
-          path: release/*
+      - name: Build, sign and upload Windows
+        run: go tool mygo build -platform windows/amd64,windows/arm64 -upload
 
   publish:
     needs: [macos-linux, windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - name: Collect files and merge checksums
+      - uses: actions/checkout@v4
+      - name: Publish the release
         run: |
           set -e
-          mkdir -p out
-          cp artifacts/macos-linux/* out/
-          cp artifacts/windows/* out/
-          cd out
-          rm -f checksums.txt
-          sha256sum * > checksums.txt
-          cat checksums.txt
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: out/*
-          generate_release_notes: true
+          tag="v$(jq -r .version mygo.json)"
+          assets="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          for f in \
+            update-darwin-arm64.json update-darwin-amd64.json \
+            update-windows-arm64.json update-windows-amd64.json \
+            update-linux-arm64.json update-linux-amd64.json; do
+            grep -qx "$f" <<< "$assets" || { echo "missing $f"; exit 1; }
+          done
+          # Installed apps see the update once the draft is published.
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false

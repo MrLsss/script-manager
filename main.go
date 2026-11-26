@@ -6,12 +6,18 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
+	"github.com/egoist/mygo/plugins/updater/native"
 	"github.com/egoist/mygo/ui"
 )
 
 func main() {
+	// Before Use: the updater plugin reads its preferences from the user data
+	// directory as soon as the app is ready.
+	useAppDataDir()
+	mygo.Use(native.Plugin)
+	checkUpdates = updater.CheckForUpdates
 	mygo.App.WhenReady(func() {
-		useAppDataDir()
 		settings, err := LoadSettings()
 		if err != nil {
 			mygo.Dialog.Error("读取设置失败", err.Error())
@@ -54,9 +60,6 @@ func main() {
 			a.setupMenu()
 			a.requestUpdate()
 		})
-		if a.settings.CheckUpdates {
-			a.checkForUpdates(false)
-		}
 		go func() {
 			state, _ := a.sync.CheckRemote()
 			snaps := a.sync.Snapshots()
@@ -103,7 +106,18 @@ func useAppDataDir() {
 
 func (a *App) setupMenu() {
 	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
-		{Role: mygo.RoleAppMenu},
+		{Label: mygo.App.Name(), Submenu: []*mygo.MenuItem{
+			{Role: mygo.RoleAbout},
+			{Label: tr("检查更新"), Click: func(*mygo.MenuItem, *mygo.Window) { checkUpdates() }},
+			mygo.Separator(),
+			{Role: mygo.RoleServices},
+			mygo.Separator(),
+			{Role: mygo.RoleHide},
+			{Role: mygo.RoleHideOthers},
+			{Role: mygo.RoleUnhide},
+			mygo.Separator(),
+			{Role: mygo.RoleQuit},
+		}},
 		{Label: tr("文件"), Submenu: []*mygo.MenuItem{
 			{Label: tr("新建脚本…"), Accelerator: "CmdOrCtrl+N", Click: func(*mygo.MenuItem, *mygo.Window) {
 				a.openNewScript("")
