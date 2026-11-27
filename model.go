@@ -37,12 +37,14 @@ type Interpreter struct {
 // scripts/<id>/, and Entry names the file that runs, relative to that
 // directory with / as the separator.
 type Script struct {
-	ID         string            `json:"id"`
-	FolderID   string            `json:"folder_id"`
-	Name       string            `json:"name"`
-	Entry      string            `json:"entry"`
-	Language   string            `json:"language"`
-	InterpID   string            `json:"interp_id,omitempty"`
+	ID       string `json:"id"`
+	FolderID string `json:"folder_id"`
+	Name     string `json:"name"`
+	Entry    string `json:"entry"`
+	Language string `json:"language"`
+	InterpID string `json:"interp_id,omitempty"`
+	// Tags are optional scenario labels, searched but never required.
+	Tags       []string          `json:"tags,omitempty"`
 	Args       []string          `json:"args"`
 	Env        map[string]string `json:"env,omitempty"`
 	Cwd        string            `json:"cwd"`
@@ -54,13 +56,13 @@ type Script struct {
 	ProfileID  string            `json:"profile_id,omitempty"`
 	// DefaultName is what the unnamed default parameter set is called.
 	// Empty means it still shows as 默认.
-	DefaultName string            `json:"default_name,omitempty"`
-	HostID     string            `json:"host_id,omitempty"`
-	HostName   string            `json:"host_name,omitempty"`
-	HostTarget string            `json:"host_target,omitempty"`
-	Position   int               `json:"position"`
-	CreatedAt  time.Time         `json:"created_at"`
-	UpdatedAt  time.Time         `json:"updated_at"`
+	DefaultName string    `json:"default_name,omitempty"`
+	HostID      string    `json:"host_id,omitempty"`
+	HostName    string    `json:"host_name,omitempty"`
+	HostTarget  string    `json:"host_target,omitempty"`
+	Position    int       `json:"position"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 
 	// Ext is derived from Entry and never written to script.json, so there
 	// is only one source of truth for the file that runs.

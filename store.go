@@ -1321,6 +1321,7 @@ func (s *Store) UpdateScript(updated Script) error {
 		}
 		sc.FolderID = updated.FolderID
 		sc.InterpID = updated.InterpID
+		sc.Tags = updated.Tags
 		if updated.InterpID == "" {
 			delete(s.bindings, sc.ID)
 		} else {

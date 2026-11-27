@@ -2,7 +2,7 @@
   "name": "script-manager",
   "slug": "script-manager",
   "identifier": "com.liushuai.scriptmanager",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "main": ".",
   "out": "dist",
   "icon": "resources/icon.png",

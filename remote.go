@@ -559,8 +559,11 @@ func setHostProblem(h *RemoteHost, problem string) {
 	h.Problem = problem
 }
 
-// remoteRunCommand is the shell script run on the far side. The exit marker is
-// the only line the app reads back; the pid file lets Stop reach the process.
+// remoteRunCommand is the shell script run on the far side. It is written to
+// a 0600 file and started with bash, never passed as an ssh command argument,
+// so the environment it exports stays out of process listings. The exit marker
+// is the only line the app reads back; the pid file lets Stop reach the
+// process.
 func remoteRunCommand(sc Script, version, runID, interpPath string) string {
 	dirExpr := remoteDirExpr(sc.ID, version)
 	entryDir := filepath.ToSlash(filepath.Dir(sc.Entry))
@@ -601,6 +604,35 @@ func remoteRunCommand(sc Script, version, runID, interpPath string) string {
 	b.WriteString("echo \"__SM_EXIT:$code\"\n")
 	b.WriteString("exit \"$code\"\n")
 	return b.String()
+}
+
+// pushRemoteScript writes the run script to the far side and returns the
+// shell expression of its path. The environment exports, credentials
+// included, live only in this 0600 file: passing them as the ssh command
+// would put them in the local ps output and the remote bash -c argv, where
+// any user of either machine could read them.
+func pushRemoteScript(h RemoteHost, runID, body string) (string, error) {
+	pathExpr := remotePathExpr(remoteRoot+`/runs`, runID+".sh")
+	cmd := "mkdir -p " + remoteRoot + `/runs && umask 077 && cat > ` + pathExpr +
+		` && chmod 600 ` + pathExpr + ` && echo __SM_PUSHED`
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := sshWithInput(ctx, h, cmd, strings.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("无法写入远端运行脚本: %s", firstLine(out, err))
+	}
+	if !strings.Contains(out, "__SM_PUSHED") {
+		return "", fmt.Errorf("无法写入远端运行脚本: %s", firstLine(out, err))
+	}
+	return pathExpr, nil
+}
+
+// removeRemoteScript deletes a run script once its run has finished.
+func removeRemoteScript(h RemoteHost, runID string) {
+	pathExpr := remotePathExpr(remoteRoot+`/runs`, runID+".sh")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_, _ = sshOutput(ctx, h, "rm -f "+pathExpr)
 }
 
 // killRemoteProcess asks the far side to stop the process group of a run.

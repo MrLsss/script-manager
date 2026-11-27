@@ -76,6 +76,27 @@ func (a *App) runSync() {
 		a.alertError("无法同步", err.Error())
 		return
 	}
+	// A literal credential in an environment variable would be committed to
+	// the repository history, where deleting it later does not help. Warn
+	// once a session, then let the user decide.
+	if hits := suspiciousEnvSecrets(a.store.Scripts()); len(hits) > 0 && !a.secretWarned {
+		a.confirmAction("环境变量里可能有明文密钥",
+			"这些环境变量看起来是密钥，同步会写进仓库历史，之后删掉也没用："+
+				strings.Join(hits, "、")+"。建议改成 ${secret:名称} 引用。仍要同步吗？",
+			[]string{"取消", "仍然同步"}, func(i int) {
+				if i != 1 {
+					return
+				}
+				a.secretWarned = true
+				a.doSync()
+			})
+		return
+	}
+	a.doSync()
+}
+
+// doSync is the body of runSync, after the checks that may stop it.
+func (a *App) doSync() {
 	keep := a.settings.SnapshotKeep
 	start := false
 	a.changeSyncData(func(d *syncPanelState) {

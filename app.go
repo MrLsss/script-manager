@@ -119,6 +119,7 @@ type App struct {
 
 	sync       *Sync
 	remotes    *RemoteStore
+	secrets    *Secrets
 	remoteSel  string
 	remoteBusy atomic.Bool
 	syncPanel  atomic.Pointer[syncPanelState]
@@ -127,6 +128,12 @@ type App struct {
 
 	bundle         bundleState
 	importFolderID string
+
+	secretsOpen  bool
+	secretName   string
+	secretValue  string
+	secretErr    string
+	secretWarned bool
 
 	form    formState
 	confirm confirmState
@@ -249,6 +256,7 @@ type formState struct {
 	cwd     string
 	timeout string
 	lang    string
+	tags    string
 
 	folderIdx int
 
@@ -309,6 +317,14 @@ func newApp(settings Settings, store *Store) *App {
 	}
 	if a.remotes == nil {
 		a.remotes = emptyRemoteStore()
+	}
+	if path, err := secretsPath(); err == nil {
+		if s, err := OpenSecrets(path); err == nil {
+			a.secrets = s
+		}
+	}
+	if a.secrets == nil {
+		a.secrets = emptySecrets()
 	}
 	a.bundle.conflict = string(ConflictCopy)
 	a.applyProxySettings()
@@ -1523,9 +1539,14 @@ func (a *App) startScriptRun(sc Script) {
 	}
 	if sc.InterpID == "" {
 		// Remember the interpreter this run used, so the header always agrees
-		// with what actually ran.
+		// with what actually ran. This saves the script as stored, before the
+		// environment is resolved: writing the resolved one back would put the
+		// credentials into script.json, and from there into the synced history.
 		sc.InterpID = it.ID
 		_ = a.store.UpdateScript(sc)
+	}
+	if sc, ok = a.resolveRunEnv(sc); !ok {
+		return
 	}
 	if sc.Preflight {
 		if err := a.preflightLocal(sc, it); err != nil {
@@ -1601,9 +1622,14 @@ func (a *App) runOnRemote(sc Script) {
 
 func (a *App) startRemoteRun(sc Script, host RemoteHost, ri RemoteInterp) {
 	sc = applyRunProfile(sc)
-	if _, ok := a.runner.Active(sc.ID); ok {
+	if _, active := a.runner.Active(sc.ID); active {
 		return
 	}
+	resolved, ok := a.resolveRunEnv(sc)
+	if !ok {
+		return
+	}
+	sc = resolved
 	release, err := a.reserveRun()
 	if err != nil {
 		a.alertError("无法运行", err.Error())
@@ -1639,6 +1665,19 @@ func (a *App) startRemoteRun(sc Script, host RemoteHost, ri RemoteInterp) {
 			a.showNotice("已在 " + host.Name + " 上开始运行")
 		})
 	}()
+}
+
+// resolveRunEnv turns ${secret:name} references into the stored credentials
+// just before a run. A missing secret stops the run instead of letting a blank
+// value through, and the resolved values never touch script.json.
+func (a *App) resolveRunEnv(sc Script) (Script, bool) {
+	env, err := resolveEnv(sc.Env, a.secrets)
+	if err != nil {
+		a.alertError("无法运行", err.Error())
+		return sc, false
+	}
+	sc.Env = env
+	return sc, true
 }
 
 func (a *App) stopScript(sc Script) {

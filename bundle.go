@@ -47,6 +47,7 @@ type BundleScript struct {
 	Entry       string            `json:"entry"`
 	Ext         string            `json:"ext,omitempty"`
 	Language    string            `json:"language"`
+	Tags        []string          `json:"tags,omitempty"`
 	Args        []string          `json:"args,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
 	Cwd         string            `json:"cwd,omitempty"`
@@ -186,25 +187,26 @@ func ExportLibrary(store *Store, target string, opts ExportOptions) error {
 			return err
 		}
 		bs := BundleScript{
-			ID:         sc.ID,
-			Folder:     folderPaths[sc.FolderID],
-			Name:       sc.Name,
-			Entry:      sc.Entry,
-			Ext:        sc.Ext,
-			Language:   sc.Language,
-			Args:       sc.Args,
-			Env:        sc.Env,
-			Cwd:        sc.Cwd,
-			Timeout:    sc.Timeout,
-			RunAsAdmin: sc.RunAsAdmin,
-			Dangerous:  sc.Dangerous,
-			Preflight:  sc.Preflight,
-			Profiles:   sc.Profiles,
-			ProfileID:  sc.ProfileID,
+			ID:          sc.ID,
+			Folder:      folderPaths[sc.FolderID],
+			Name:        sc.Name,
+			Entry:       sc.Entry,
+			Ext:         sc.Ext,
+			Language:    sc.Language,
+			Tags:        sc.Tags,
+			Args:        sc.Args,
+			Env:         sc.Env,
+			Cwd:         sc.Cwd,
+			Timeout:     sc.Timeout,
+			RunAsAdmin:  sc.RunAsAdmin,
+			Dangerous:   sc.Dangerous,
+			Preflight:   sc.Preflight,
+			Profiles:    sc.Profiles,
+			ProfileID:   sc.ProfileID,
 			DefaultName: sc.DefaultName,
-			HostName:   sc.HostName,
-			HostTarget: sc.HostTarget,
-			Hash:       contentHash(entry),
+			HostName:    sc.HostName,
+			HostTarget:  sc.HostTarget,
+			Hash:        contentHash(entry),
 		}
 		if bs.HostName == "" && bs.HostTarget == "" && opts.Host != nil && sc.HostID != "" {
 			bs.HostName, bs.HostTarget = opts.Host(sc.HostID)
@@ -395,6 +397,7 @@ func ImportLibrary(store *Store, file string, opts ImportOptions) (ImportResult,
 		}
 		updated := script
 		updated.Args = bs.Args
+		updated.Tags = bs.Tags
 		updated.Env = bs.Env
 		updated.Cwd = bs.Cwd
 		updated.Timeout = bs.Timeout

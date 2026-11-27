@@ -8,11 +8,15 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/lobehub/lobe-mygo/pkg/lucide"
 )
 
 func (a *App) dialogs(c *ui.Context) {
 	if a.form.open {
 		a.formModal(c)
+	}
+	if a.secretsOpen {
+		a.secretsModal(c)
 	}
 	if a.bundle.open {
 		a.bundleModal(c)
@@ -228,6 +232,9 @@ func (a *App) scriptOptionsForm(c *ui.Context) {
 		ui.Switch(c, &a.form.preflight)
 		ui.Text(c, tr("检查 shell、Python、JavaScript 的语法")).FontSize(12).TextColor(c.Theme().TextMuted)
 	})
+	a.formField(c, "标签", func() {
+		ui.TextInput(c, &a.form.tags).Placeholder(tr("例如 运维, 备份")).Grow(1)
+	})
 	a.formField(c, "文件", func() {
 		if ui.Button(c, tr("添加文件…")).Padding(2, 10).Clicked() {
 			a.form.open = false
@@ -281,17 +288,38 @@ func (a *App) runArgsForm(c *ui.Context) {
 	a.formField(c, "参数", func() {
 		ui.TextInput(c, &a.form.args).Placeholder(tr("附加参数，空格分隔；支持引号")).Grow(1)
 	})
-	a.formField(c, "环境变量", func() {
-		ui.TextArea(c, &a.form.env).Height(72).Grow(1)
-	})
-	a.formField(c, "工作目录", func() {
-		ui.TextInput(c, &a.form.cwd).Placeholder(tr("留空则用入口所在目录")).Grow(1)
-		if ui.Button(c, tr("选择…")).Clicked() {
-			if paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "选择工作目录", Directory: true}); err == nil && len(paths) > 0 {
-				a.form.cwd = paths[0]
+	a.formFieldHint(c, "环境变量",
+		"只对这套参数生效：每行一个 KEY=VALUE，只在本次运行注入，不改系统环境；同名会覆盖。密钥写 ${secret:名称}，不直接写值。",
+		func() {
+			ui.TextArea(c, &a.form.env).Height(72).Grow(1)
+			if ui.Button(c, tr("密钥…")).Padding(2, 10).
+				Tooltip(tr("管理本机密钥库，环境变量用 ${secret:名称} 引用")).
+				Clicked() {
+				a.openSecrets()
+			}
+		})
+	if refs := secretRefNames(a.form.env); len(refs) > 0 {
+		var missing []string
+		for _, name := range refs {
+			if !a.secrets.Has(name) {
+				missing = append(missing, name)
 			}
 		}
-	})
+		if len(missing) > 0 {
+			ui.Textf(c, tr("密钥库里还没有 %s，运行前会报错。"), strings.Join(missing, "、")).
+				FontSize(11).TextColor(c.Theme().Danger).Wrap()
+		}
+	}
+	a.formFieldHint(c, "工作目录",
+		"脚本启动时的当前目录，代码里的相对路径以它为准，适合读写固定目录里的数据；留空则用入口所在目录。远程运行暂不生效。",
+		func() {
+			ui.TextInput(c, &a.form.cwd).Placeholder(tr("留空则用入口所在目录")).Grow(1)
+			if ui.Button(c, tr("选择…")).Clicked() {
+				if paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "选择工作目录", Directory: true}); err == nil && len(paths) > 0 {
+					a.form.cwd = paths[0]
+				}
+			}
+		})
 	a.formField(c, "超时", func() {
 		ui.TextInput(c, &a.form.timeout).Width(80)
 		ui.Text(c, tr("秒，留空或 0 用设置里的默认值")).FontSize(11).TextColor(c.Theme().TextMuted)
@@ -300,7 +328,7 @@ func (a *App) runArgsForm(c *ui.Context) {
 		ui.Switch(c, &a.form.admin)
 		ui.Text(c, tr("以管理员身份运行")).FontSize(12).TextColor(c.Theme().TextMuted)
 	})
-	ui.Text(c, tr("每行一个 KEY=VALUE，# 开头为注释；参数会追加在解释器模板之后。")).
+	ui.Text(c, tr("参数会追加在解释器模板之后。")).
 		FontSize(11).TextColor(c.Theme().TextMuted).Wrap()
 }
 
@@ -531,6 +559,7 @@ func (a *App) saveScriptOptions() {
 	}
 	sc.Dangerous = a.form.dangerous
 	sc.Preflight = a.form.preflight
+	sc.Tags = parseTags(a.form.tags)
 	if err := a.store.UpdateScript(sc); err != nil {
 		a.form.err = err.Error()
 		return
@@ -604,6 +633,21 @@ func (a *App) formField(c *ui.Context, label string, control func()) {
 	t := c.Theme()
 	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, tr(label)).FontSize(12).TextColor(t.TextMuted).Width(104).Shrink(0).Wrap()
+		ui.Row(c).Grow(1).Gap(6).AlignItems(ui.Center).Children(control)
+	})
+}
+
+// formFieldHint is formField with an info icon before the label, whose
+// tooltip explains the field. The explanation lives there instead of as a
+// paragraph under the form, which kept the dialog long.
+func (a *App) formFieldHint(c *ui.Context, label, hint string, control func()) {
+	t := c.Theme()
+	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Width(104).Shrink(0).Gap(4).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, lucide.Info()).Width(12).Height(12).Shrink(0).
+				TextColor(t.TextMuted).Tooltip(tr(hint))
+			ui.Text(c, tr(label)).FontSize(12).TextColor(t.TextMuted).Wrap()
+		})
 		ui.Row(c).Grow(1).Gap(6).AlignItems(ui.Center).Children(control)
 	})
 }
@@ -734,6 +778,7 @@ func (a *App) openScriptOptions(sc Script) {
 	f := formState{kind: dialogScriptOptions, open: true, title: "脚本设置", targetID: sc.ID}
 	f.dangerous = sc.Dangerous
 	f.preflight = sc.Preflight
+	f.tags = formatTags(sc.Tags)
 	a.form = f
 	a.requestUpdate()
 }
@@ -749,6 +794,29 @@ func (a *App) openRunArgs(sc Script) {
 		profileID: profileID}
 	a.fillRunProfileForm(sc)
 	a.requestUpdate()
+}
+
+// secretRefNames lists the secret names an environment text refers to.
+func secretRefNames(text string) []string {
+	if text == "" {
+		return nil
+	}
+	env, err := parseEnvLines(text)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range env {
+		for _, m := range secretRefPattern.FindAllStringSubmatch(value, -1) {
+			if !seen[m[1]] {
+				seen[m[1]] = true
+				out = append(out, m[1])
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (a *App) folderChoices() []Folder {

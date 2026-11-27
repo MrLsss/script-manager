@@ -271,6 +271,7 @@ func (a *App) scriptMatches(sc Script, query string) bool {
 	}
 	if strings.Contains(strings.ToLower(sc.Name), q) ||
 		strings.Contains(strings.ToLower(sc.Entry), q) ||
+		tagMatches(sc.Tags, q) ||
 		strings.Contains(strings.ToLower(a.folderPath(sc.FolderID)), q) {
 		return true
 	}

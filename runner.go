@@ -49,7 +49,9 @@ type runLog struct {
 func (l *runLog) add(kind int, text string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.redact && (kind == 0 || kind == 1) {
+	if l.redact {
+		// Every line, headers included: the command line a run prints can
+		// carry an argument that is a credential.
 		text = redactSecrets(text)
 	}
 	line := LogLine{Kind: kind, Text: text}
@@ -710,7 +712,20 @@ func (r *Runner) runRemoteUpload(ctx context.Context, a *activeRun, sc Script, h
 		return
 	}
 
-	cmd := exec.Command("ssh", append([]string{"-tt"}, sshArgs(host, remoteRunCommand(sc, a.version, a.run.ID, ri.Path))...)...)
+	// The run script is written first, so that its exports, credentials
+	// included, never travel as an ssh command argument.
+	scriptPath, err := pushRemoteScript(host, a.run.ID, remoteRunCommand(sc, a.version, a.run.ID, ri.Path))
+	if err != nil {
+		r.mu.Lock()
+		delete(r.active, a.run.ID)
+		r.mu.Unlock()
+		a.log.add(1, err.Error())
+		r.finishRemoteRun(a, RunAborted, -1, false)
+		return
+	}
+	defer removeRemoteScript(host, a.run.ID)
+
+	cmd := exec.Command("ssh", append([]string{"-tt"}, sshArgs(host, "bash "+scriptPath)...)...)
 	configureProcess(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
